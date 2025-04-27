@@ -1,0 +1,253 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+body {
+    font-family: 'Manrope', sans-serif, 'Space Mono', monospace;
+    margin: 0;
+    background-color: #101010;
+    color: #1a1a1a;
+    min-width: 380px;
+
+}
+
+.container {
+    padding: 16px 16px 9px 16px;
+    max-width: 640px;
+    border-radius: 4px;
+
+}
+
+header {
+    margin-bottom: 20px;
+}
+
+h1 {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding-bottom: 10px;
+    padding-top: 6px;
+}
+
+h1 svg {
+    color: #ff0000;
+}
+
+main {
+    margin-bottom: 16px;
+}
+
+#watchlist {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.watchlist-item {
+    background: #191919;
+    border-radius: 4px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid #2D2D2D;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    transition: opacity 0.1s ease-out;
+}
+
+.watchlist-item:hover {
+    background: #242424;
+    border: 1px solid #404040;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.thumbnail {
+    width: 100px;
+    height: 56px;
+    border-radius: 4px;
+    object-fit: cover;
+}
+
+.video-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.video-title {
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0 0 4px 0;
+    color: #ffffff;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.video-timestamp {
+    font-size: 12px;
+    color: #7C7C7C;
+}
+
+.remove-button {
+    background: none;
+    border: none;
+    padding: 6px;
+    cursor: pointer;
+    color: #666;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.1s ease;
+    margin-left: auto;
+}
+
+.remove-button:hover {
+    background-color: #781D2F;
+    border: 1px solid #ED1A43;
+}
+
+.remove-button:hover svg {
+    fill: #FFFFFF;
+}
+
+.empty-state-text {
+    text-align: center;
+    padding: 32px 16px;
+    color: #666;
+}
+
+footer {
+    border-top: 1px solid #2F2E2E;
+    padding-top: 9px;
+    font-size: 12px;
+    color: #666;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.watchlist-item {
+    animation: slideIn 0.3s ease forwards;
+}
+
+.video-timestamp-label {
+    font-family: 'Manrope', sans-serif;
+    font-size: 12px;
+    color: #7C7C7C;
+}
+
+.timestamp-separator {
+    font-family: 'Manrope', sans-serif;
+    font-size: 12px;
+    color: #7C7C7C;
+    margin: 0 4px;
+}
+
+.timestamp-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    color: #7C7C7C;
+    font-weight: 400;
+}
+.window-header {
+    display: flex;
+    justify-content: flex-end;
+    padding: 8px;
+    -webkit-app-region: drag;
+}
+
+.close-button {
+    background: none;
+    border: none;
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-app-region: no-drag;
+}
+
+.close-button:hover {
+    background-color: #781D2F;
+}
+
+.close-button svg {
+    stroke: #666666;
+}
+
+.close-button:hover svg {
+    stroke: #FFFFFF;
+}
+
+.empty-state-text {
+    font-size: 14px;
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+.key-style {
+    font-size: 11px;
+    font-family: 'Manrope', sans-serif;
+    color: #818181;
+    background-color: #181818;
+    border: 1px solid #2E2E2E;
+    border-radius: 4px;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.divider {
+    font-size: 28px;
+    font-family: 'Manrope', sans-serif;
+    font-weight: 200;
+    color: #2E2E2E;
+}
+
+.footer-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 12px 0;
+}
+
+.get-in-touch{
+    color: #0090FF;
+    text-decoration: underline;
+    cursor: pointer;
+    font-weight: semibold;
+}
+
+.footer-text{
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+}
