@@ -6,7 +6,7 @@ function openVideo(videoId, currentTime) {
 }
 
 function removeVideoFromWatchlist(videoId, timestamp, category, event) {
-    event.stopPropagation();
+    event.stopPropagation(); 
     
     chrome.storage.local.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };

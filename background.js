@@ -1,6 +1,6 @@
 // Empty for now, but can be used to manage more complex operations later
 
-let watchlistWindow = null;
+let watchlistWindow = null; 
 
 chrome.action.onClicked.addListener(() => {
     if (watchlistWindow) {

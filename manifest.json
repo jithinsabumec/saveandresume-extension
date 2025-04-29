@@ -7,7 +7,7 @@
     "description": "Save and manage videos with timestamps.",
     "permissions": [
         "storage",
-        "windows"
+        "windows" 
     ],
     "background": {
         "service_worker": "background.js"

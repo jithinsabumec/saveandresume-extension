@@ -1,5 +1,5 @@
 // Function to clean video title
-function cleanVideoTitle(title) {
+function cleanVideoTitle(title) { 
     return title
         .replace(/^\([^)]*\)\s*/, '')  // Remove brackets at start
         .replace(/^[\[\]0-9]+\s*/, '') // Remove numbers in brackets
