@@ -131,36 +131,374 @@ function showCustomPopup(data) {
     }, 3000);
 }
 
+// Function to find which category a video belongs to
+function findVideoCategory(videoId, callback) {
+    chrome.storage.local.get(['categories'], function(result) {
+        const categories = result.categories || {};
+        let foundCategory = null;
+        
+        for (const category in categories) {
+            const index = categories[category].findIndex(video => video.videoId === videoId);
+            if (index !== -1) {
+                foundCategory = category;
+                break;
+            }
+        }
+        callback(foundCategory);
+    });
+}
+
 // Function to save video info to storage with current timestamp
 function saveVideoToWatchlist(videoId, title, currentTime) {
-    // Get the current video ID and title from the page
     const currentVideoId = new URLSearchParams(window.location.search).get('v');
-    // Get title from YouTube's video title element
     const currentTitle = document.querySelector('h1.style-scope.ytd-watch-metadata')?.textContent?.trim() || document.title;
     const thumbnailUrl = getVideoThumbnail(currentVideoId);
+    const cleanedTitle = cleanVideoTitle(currentTitle);
     
-    chrome.storage.local.get(['watchlist'], function(result) {
-        const watchlist = result.watchlist || [];
-        const cleanedTitle = cleanVideoTitle(currentTitle);  // Clean the current title
+    // Check if video already exists in any category
+    findVideoCategory(currentVideoId, (existingCategory) => {
+        if (existingCategory) {
+            // Video exists, update timestamp directly without showing dialog
+            console.log(`Video ${currentVideoId} found in category ${existingCategory}. Updating timestamp.`);
+            saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory);
+        } else {
+            // Video is new, show category selection dialog
+            console.log(`Video ${currentVideoId} not found. Showing category dialog.`);
+            showCategorySelectionDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl);
+        }
+    });
+}
+
+// Function to show category selection dialog
+function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) {
+    // Remove existing dialog and backdrop if any
+    const existingDialog = document.getElementById('category-selection-dialog');
+    const existingBackdrop = document.getElementById('category-selection-backdrop');
+    if (existingDialog) existingDialog.remove();
+    if (existingBackdrop) existingBackdrop.remove();
+    
+    // Create dialog container
+    const dialog = document.createElement('div');
+    dialog.id = 'category-selection-dialog';
+    dialog.style.position = 'fixed';
+    dialog.style.top = '50%';
+    dialog.style.left = '50%';
+    dialog.style.transform = 'translate(-50%, -50%)';
+    dialog.style.width = '350px';
+    dialog.style.maxHeight = '400px';
+    dialog.style.backgroundColor = '#191919';
+    dialog.style.borderRadius = '8px';
+    dialog.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.5)';
+    dialog.style.padding = '20px';
+    dialog.style.zIndex = '10000';
+    dialog.style.color = '#ffffff';
+    dialog.style.fontFamily = 'Manrope, sans-serif';
+    dialog.style.display = 'flex';
+    dialog.style.flexDirection = 'column';
+    dialog.style.gap = '16px';
+
+    // Add Space Mono font import to ensure it's available
+    const fontLink = document.createElement('link');
+    fontLink.rel = 'stylesheet';
+    fontLink.href = 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Manrope:wght@400;500;600&display=swap';
+    document.head.appendChild(fontLink);
+    
+    // Add backdrop
+    const backdrop = document.createElement('div');
+    backdrop.id = 'category-selection-backdrop'; // Give backdrop an ID
+    backdrop.style.position = 'fixed';
+    backdrop.style.top = '0';
+    backdrop.style.left = '0';
+    backdrop.style.right = '0';
+    backdrop.style.bottom = '0';
+    backdrop.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    backdrop.style.zIndex = '9999';
+    
+    // Get formatted time for display
+    const formattedTime = formatTime(currentTime);
+    
+    // Helper function to close dialog and backdrop
+    const closeDialog = () => {
+        dialog.remove();
+        backdrop.remove();
+    };
+
+    backdrop.onclick = (e) => {
+        if (e.target === backdrop) {
+            closeDialog();
+        }
+    };
+    
+    // Create dialog header
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    
+    const headerTitle = document.createElement('h3');
+    headerTitle.textContent = 'Assign Category';
+    headerTitle.style.margin = '0';
+    headerTitle.style.fontSize = '18px';
+    headerTitle.style.fontWeight = '500';
+    headerTitle.style.fontFamily = 'Manrope, sans-serif';
+    
+    const closeButton = document.createElement('button');
+    closeButton.innerHTML = '&times;';
+    closeButton.style.background = 'none';
+    closeButton.style.border = 'none';
+    closeButton.style.fontSize = '24px';
+    closeButton.style.color = '#7C7C7C';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.padding = '0';
+    closeButton.onclick = closeDialog;
+    
+    header.appendChild(headerTitle);
+    header.appendChild(closeButton);
+    dialog.appendChild(header);
+    
+    // Create timestamp display
+    const timestampInfo = document.createElement('div');
+    timestampInfo.style.backgroundColor = '#242424';
+    timestampInfo.style.padding = '12px';
+    timestampInfo.style.borderRadius = '4px';
+    timestampInfo.style.display = 'flex';
+    timestampInfo.style.alignItems = 'center';
+    timestampInfo.style.gap = '12px';
+    timestampInfo.style.border = '1px solid #404040';
+    
+    const thumbnailImg = document.createElement('img');
+    thumbnailImg.src = thumbnailUrl;
+    thumbnailImg.style.width = '80px';
+    thumbnailImg.style.height = '45px';
+    thumbnailImg.style.borderRadius = '4px';
+    thumbnailImg.style.objectFit = 'cover';
+    
+    const infoText = document.createElement('div');
+    infoText.style.display = 'flex';
+    infoText.style.flexDirection = 'column';
+    infoText.style.gap = '4px';
+    
+    const titleText = document.createElement('div');
+    titleText.textContent = title;
+    titleText.style.fontSize = '14px';
+    titleText.style.lineHeight = '1.4';
+    titleText.style.overflow = 'hidden';
+    titleText.style.display = '-webkit-box';
+    titleText.style.webkitLineClamp = '2';
+    titleText.style.webkitBoxOrient = 'vertical';
+    titleText.style.textOverflow = 'ellipsis';
+    titleText.style.fontFamily = 'Manrope, sans-serif';
+    
+    const timeText = document.createElement('div');
+    // Change timestamp value color to grey (#7C7C7C)
+    timeText.innerHTML = `
+        <span style="color: #7C7C7C; font-size: 12px; font-family: 'Manrope', sans-serif;">Timestamp - </span>
+        <span style="font-family: 'Space Mono', monospace !important; font-size: 12px; font-weight: 400 !important; color: #7C7C7C;">${formattedTime}</span>
+    `;
+    
+    infoText.appendChild(titleText);
+    infoText.appendChild(timeText);
+    
+    timestampInfo.appendChild(thumbnailImg);
+    timestampInfo.appendChild(infoText);
+    dialog.appendChild(timestampInfo);
+    
+    // Create category selection
+    const categorySection = document.createElement('div');
+    categorySection.style.display = 'flex';
+    categorySection.style.flexDirection = 'column';
+    categorySection.style.gap = '8px';
+    
+    const categoryLabel = document.createElement('label');
+    categoryLabel.textContent = 'Choose a category';
+    categoryLabel.style.fontSize = '14px';
+    categoryLabel.style.fontFamily = 'Manrope, sans-serif';
+    
+    const categorySelect = document.createElement('select');
+    categorySelect.id = 'category-select';
+    categorySelect.style.backgroundColor = '#242424';
+    categorySelect.style.border = '1px solid #393838';
+    categorySelect.style.borderRadius = '4px';
+    categorySelect.style.padding = '8px';
+    categorySelect.style.color = '#ffffff';
+    categorySelect.style.fontFamily = 'Manrope, sans-serif';
+    categorySelect.style.width = '100%';
+    categorySelect.style.appearance = 'auto';
+    
+    // Add "Create new..." option
+    const createNewOption = document.createElement('option');
+    createNewOption.value = 'create-new';
+    createNewOption.textContent = '+ Create new category';
+    createNewOption.style.fontFamily = 'Manrope, sans-serif';
+    
+    const newCategoryInput = document.createElement('input');
+    newCategoryInput.type = 'text';
+    newCategoryInput.placeholder = 'Enter new category name';
+    newCategoryInput.style.backgroundColor = '#242424';
+    newCategoryInput.style.border = '1px solid #393838';
+    newCategoryInput.style.borderRadius = '4px';
+    newCategoryInput.style.padding = '8px';
+    newCategoryInput.style.color = '#ffffff';
+    newCategoryInput.style.fontFamily = 'Manrope, sans-serif';
+    newCategoryInput.style.width = '100%';
+    newCategoryInput.style.display = 'none';
+    newCategoryInput.style.boxSizing = 'border-box';
+    newCategoryInput.style.outline = 'none';
+    newCategoryInput.onfocus = function() {
+        this.style.outline = 'none';
+        this.style.boxShadow = '0 0 0 1px rgba(121, 121, 121, 0.6)';
+        this.style.borderColor = 'transparent';
+        this.style.transition = 'box-shadow 0.2s ease, border-color 0.2s ease';
+    };
+    newCategoryInput.onblur = function() {
+        this.style.boxShadow = 'none';
+        this.style.borderColor = '#393838';
+    };
+
+    // Load existing categories
+    chrome.storage.local.get(['categories'], function(result) {
+        const categories = result.categories || { Default: [] };
+        
+        // Default option
+        const defaultOption = document.createElement('option');
+        defaultOption.value = 'Default';
+        defaultOption.textContent = 'Default';
+        defaultOption.selected = true;
+        defaultOption.style.fontFamily = 'Manrope, sans-serif';
+        categorySelect.appendChild(defaultOption);
+        
+        // Other categories
+        Object.keys(categories)
+            .filter(cat => cat !== 'Default')
+            .sort()
+            .forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                option.style.fontFamily = 'Manrope, sans-serif';
+                categorySelect.appendChild(option);
+            });
+        
+        categorySelect.appendChild(createNewOption);
+    });
+    
+    categorySelect.onchange = function() {
+        if (this.value === 'create-new') {
+            // Show new category input
+            this.style.display = 'none';
+            newCategoryInput.style.display = 'block';
+            newCategoryInput.focus();
+        }
+    };
+    
+    categorySection.appendChild(categoryLabel);
+    categorySection.appendChild(categorySelect);
+    categorySection.appendChild(newCategoryInput);
+    dialog.appendChild(categorySection);
+    
+    // Create action buttons
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.style.display = 'flex';
+    buttonsContainer.style.justifyContent = 'flex-end';
+    buttonsContainer.style.gap = '8px';
+    buttonsContainer.style.marginTop = '8px';
+    
+    const cancelButton = document.createElement('button');
+    cancelButton.textContent = 'Cancel';
+    cancelButton.style.backgroundColor = '#242424';
+    cancelButton.style.border = '1px solid #393838';
+    cancelButton.style.borderRadius = '4px';
+    cancelButton.style.padding = '8px 12px';
+    cancelButton.style.color = '#7C7C7C';
+    cancelButton.style.cursor = 'pointer';
+    cancelButton.style.fontFamily = 'Manrope, sans-serif';
+    cancelButton.style.transition = 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease';
+    cancelButton.onmouseover = function() {
+        this.style.backgroundColor = '#333333';
+        this.style.borderColor = '#555555';
+        this.style.color = '#ffffff';
+    };
+    cancelButton.onmouseout = function() {
+        this.style.backgroundColor = '#242424';
+        this.style.borderColor = '#393838';
+        this.style.color = '#7C7C7C';
+    };
+    cancelButton.onclick = closeDialog;
+    
+    const saveButton = document.createElement('button');
+    saveButton.textContent = 'Save';
+    saveButton.style.backgroundColor = '#781D2F';
+    saveButton.style.border = '1px solid #ED1A43';
+    saveButton.style.borderRadius = '4px';
+    saveButton.style.padding = '8px 12px';
+    saveButton.style.color = '#ffffff';
+    saveButton.style.cursor = 'pointer';
+    saveButton.style.fontFamily = 'Manrope, sans-serif';
+    saveButton.style.transition = 'background-color 0.2s ease';
+    saveButton.onmouseover = function() {
+        this.style.backgroundColor = '#611726';
+    };
+    saveButton.onmouseout = function() {
+        this.style.backgroundColor = '#781D2F';
+    };
+    saveButton.onclick = function() {
+        let selectedCategory;
+        
+        if (newCategoryInput.style.display === 'block') {
+            selectedCategory = newCategoryInput.value.trim();
+            if (!selectedCategory) {
+                alert('Please enter a category name');
+                return;
+            }
+        } else {
+            selectedCategory = categorySelect.value;
+        }
+        
+        saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, selectedCategory);
+        closeDialog();
+    };
+    
+    buttonsContainer.appendChild(cancelButton);
+    buttonsContainer.appendChild(saveButton);
+    dialog.appendChild(buttonsContainer);
+    
+    // Add dialog and backdrop to page
+    document.body.appendChild(backdrop);
+    document.body.appendChild(dialog);
+}
+
+// Function to save timestamp with selected category
+function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, category) {
         const videoData = { 
-            videoId: currentVideoId,
-            title: cleanedTitle, 
+        videoId: videoId,
+        title: title, 
             currentTime,
             thumbnail: thumbnailUrl,
             timestamp: Date.now()
         };
         
-        const existingVideoIndex = watchlist.findIndex(video => video.videoId === currentVideoId);
+    chrome.storage.local.get(['categories'], function(result) {
+        const categories = result.categories || { Default: [] };
+        
+        // Ensure category exists
+        if (!categories[category]) {
+            categories[category] = [];
+        }
+        
+        // Check if video already exists in this category
+        const existingVideoIndex = categories[category].findIndex(video => video.videoId === videoId);
         const formattedTime = formatTime(currentTime);
         
         if (existingVideoIndex === -1) {
-            // Video not in watchlist, add it
-            watchlist.unshift(videoData);
-            chrome.storage.local.set({ watchlist: watchlist }, function() {
+            // Video not in this category, add it at the beginning
+            categories[category].unshift(videoData);
+            
+            // Save to storage
+            chrome.storage.local.set({ categories: categories }, function() {
                 if (chrome.runtime.lastError) {
                     console.error('Error saving to storage:', chrome.runtime.lastError);
                     showCustomPopup({ 
-                        action: 'added',
+                        action: 'error',
                         time: formattedTime 
                     });
                     return;
@@ -169,18 +507,20 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
                     action: 'added',
                     time: formattedTime 
                 });
-                console.log('Timestamp added to watchlist:', videoData);
+                console.log('Timestamp added to category:', category, videoData);
             });
         } else {
-            // Video exists, update its timestamp
-            watchlist[existingVideoIndex].currentTime = currentTime;
-            watchlist[existingVideoIndex].timestamp = Date.now();
-            watchlist[existingVideoIndex].title = cleanedTitle;  // Update title in case it changed
+            // Video exists in this category, update its timestamp
+            categories[category][existingVideoIndex].currentTime = currentTime;
+            categories[category][existingVideoIndex].timestamp = Date.now();
+            categories[category][existingVideoIndex].title = title;  // Update title in case it changed
             
-            const updatedVideo = watchlist.splice(existingVideoIndex, 1)[0];
-            watchlist.unshift(updatedVideo);
+            // Move to the beginning of the category
+            const updatedVideo = categories[category].splice(existingVideoIndex, 1)[0];
+            categories[category].unshift(updatedVideo);
             
-            chrome.storage.local.set({ watchlist: watchlist }, function() {
+            // Save to storage
+            chrome.storage.local.set({ categories: categories }, function() {
                 if (chrome.runtime.lastError) {
                     console.error('Error saving to storage:', chrome.runtime.lastError);
                     showCustomPopup({ 
@@ -193,7 +533,7 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
                     action: 'updated',
                     time: formattedTime 
                 });
-                console.log('Timestamp updated for video:', updatedVideo);
+                console.log('Timestamp updated in category:', category, updatedVideo);
             });
         }
     });
@@ -285,7 +625,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const video = document.querySelector('video');
         if (video) {
             const currentTime = video.currentTime;
-            saveVideoToWatchlist(videoId, videoTitle, currentTime);
+            const thumbnailUrl = getVideoThumbnail(videoId);
+            const cleanedTitle = cleanVideoTitle(videoTitle);
+            
+            // Check if video already exists before showing dialog
+            findVideoCategory(videoId, (existingCategory) => {
+                if (existingCategory) {
+                    // Video exists, update timestamp directly
+                    console.log(`Video ${videoId} found via shortcut in category ${existingCategory}. Updating timestamp.`);
+                    saveTimestampWithCategory(videoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory);
+                } else {
+                    // Video is new, show category selection dialog
+                    console.log(`Video ${videoId} not found via shortcut. Showing category dialog.`);
+                    showCategorySelectionDialog(videoId, cleanedTitle, currentTime, thumbnailUrl);
+                }
+            });
         } else {
             console.error('No video element found.');
         }

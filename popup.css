@@ -37,13 +37,249 @@ main {
     margin-bottom: 16px;
 }
 
+/* Categories styling */
+
+
+.categories-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.categories-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.add-category-button {
+    background: #2d2d2d;
+    border: 1px solid #393838;
+    color: #AAAAAA;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.add-category-button svg {
+    display: block;
+}
+
+.add-category-button:hover {
+    background-color: #781D2F;
+    border: 1px solid #ED1A43;
+    color: #ffffff;
+}
+
+.category-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.category-item {
+    background: #191919;
+    border: 1px solid #2D2D2D;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #ffffff;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    height: 18px;
+    position: relative;
+}
+
+.category-item:hover {
+    background: #242424;
+    border-color: #404040;
+}
+
+.category-item.active {
+    background: #781D2F;
+    border: 1px solid #ED1A43;
+}
+
+/* When in edit mode, adjust the category item padding */
+.edit-mode .category-item {
+    padding-right: 6px; /* Reduced right padding */
+}
+
+/* Keep All and Default buttons size consistent */
+.edit-mode .category-item[data-category="all"],
+.edit-mode .category-item[data-category="Default"] {
+    padding-right: 12px; /* Keep original padding for All and Default buttons */
+}
+
+
+
+/* Style for the delete button on category items */
+.delete-category-btn {
+    display: none; /* Hidden by default */
+    width: 18px; /* Width for touch target */
+    height: 18px;
+    color: #AAAAAA;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    line-height: 0;
+    flex-shrink: 0;
+    border-radius: 2; /* Remove border radius for square appearance */
+    position: relative; /* For hover effect */
+    margin-left: 6px; /* Remove margin */
+    padding: 0; /* Remove padding */
+}
+
+/* Edit mode class to show delete buttons */
+.edit-mode .delete-category-btn {
+    display: flex; /* Show in edit mode */
+    align-items: center;
+    justify-content: center;
+}
+
+.delete-category-btn svg {
+    display: block;
+    width: 12px;
+    height: 12px;
+    position: relative; /* Ensure it stays above the hover effect */
+    z-index: 2;
+}
+
+.delete-category-btn:hover {
+    color: #ffffff;
+    background-color: #781D2F; /* Red background on hover */
+    border-radius: 4px;
+    border: 1px solid #ED1A43;
+}
+
+/* Modal styling */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7);
+}
+
+.modal-content {
+    background-color: #191919;
+    margin: 15% auto;
+    padding: 20px;
+    border: 1px solid #2D2D2D;
+    border-radius: 8px;
+    width: 80%;
+    max-width: 300px;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.close-modal {
+    color: #7C7C7C;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    line-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close-modal svg {
+    display: block;
+}
+
+.close-modal:hover {
+    color: #ffffff;
+}
+
+.modal h3 {
+    margin-top: 0;
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 500;
+    margin-bottom: 0;
+}
+
+.modal input {
+    width: 100%;
+    padding: 8px;
+    margin: 12px 0;
+    background: #242424;
+    border: 1px solid #393838;
+    border-radius: 4px;
+    color: #ffffff;
+    font-family: 'Manrope', sans-serif;
+    box-sizing: border-box;
+    -webkit-appearance: none; /* Remove default Safari/Chrome appearance */
+    appearance: none; /* Remove default appearance */
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.modal-buttons button {
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'Manrope', sans-serif;
+}
+
+#saveCategoryBtn {
+    background: #781D2F;
+    border: 1px solid #ED1A43;
+    color: #ffffff;
+    transition: background-color 0.2s ease;
+}
+
+#saveCategoryBtn:hover {
+    background: #611726;
+}
+
+#cancelCategoryBtn {
+    background: #242424;
+    border: 1px solid #393838;
+    color: rgb(184, 184, 184);
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+#cancelCategoryBtn:hover {
+    background: #333333;
+    border-color: #555555;
+    color: #ffffff;
+}
+
+/* Existing styles */
 #watchlist {
     list-style: none;
     padding: 0;
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    margin-top: 16px;
 }
 
 .watchlist-item {
@@ -166,6 +402,43 @@ footer {
     color: #7C7C7C;
     font-weight: 400;
 }
+
+/* Category badge in watchlist item */
+.category-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    font-size: 10px;
+    background: #242424;
+    border: 1px solid #393838;
+    border-radius: 8px;
+    color: #7C7C7C;
+    margin-right: 4px;
+    margin-top: 4px;
+}
+
+/* Category header */
+.category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 0 8px 0;
+}
+
+.category-header-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+/* Category section for watchlist */
+.category-section {
+    margin-bottom: 16px;
+}
+
+.category-section:first-child {
+    margin-top: 8px;
+}
+
 .window-header {
     display: flex;
     justify-content: flex-end;
@@ -250,4 +523,58 @@ footer {
     display: flex;
     flex-direction: row;
     gap: 4px;
+}
+
+/* Global style to remove default focus outline and add a custom one */
+*:focus {
+    outline: none;
+    box-shadow: 0 0 0 1px rgba(121, 121, 121, 0.6); /* Brighter white glow */
+    transition: box-shadow 0.2s ease;
+}
+
+.categories-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.edit-category-button {
+    background: #2d2d2d;
+    border: 1px solid #393838;
+    color: #AAAAAA;
+    border-radius: 4px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    padding: 0;
+}
+
+.edit-category-button svg {
+    display: block;
+}
+
+.edit-category-button:hover {
+    background-color: #781D2F;
+    border: 1px solid #ED1A43;
+    color: #ffffff;
+}
+
+.save-categories-button {
+    background: #781D2F;
+    border: 1px solid #ED1A43;
+    color: #ffffff;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-family: 'Manrope', sans-serif;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.save-categories-button:hover {
+    background: #611726;
 }
