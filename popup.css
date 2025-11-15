@@ -8,7 +8,82 @@ body {
     min-width: 380px;
 
 }
- 
+
+.auth-state {
+    display: none;
+}
+
+#auth-section {
+    background: #191919;
+    border: 1px solid #2D2D2D;
+    border-radius: 6px;
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+#auth-section .user-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+
+#auth-section #user-photo {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid #2D2D2D;
+}
+
+.sign-in-button,
+.sign-out-button {
+    background: #2d2d2d;
+    border: 1px solid #393838;
+    color: #ffffff;
+    border-radius: 4px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-family: 'Manrope', sans-serif;
+    font-size: 12px;
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+    white-space: nowrap;
+}
+
+.sign-in-button:hover,
+.sign-out-button:hover {
+    background: #781D2F;
+    border-color: #ED1A43;
+    transform: translateY(-1px);
+}
+
+.sign-in-button:active,
+.sign-out-button:active {
+    transform: translateY(0);
+}
+
+#auth-section #user-name {
+    font-size: 13px;
+    color: #ffffff;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#auth-section #user-email {
+    font-size: 12px;
+    color: #7C7C7C;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .container {
     padding: 16px 16px 9px 16px;
     max-width: 640px;

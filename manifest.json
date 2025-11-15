@@ -7,7 +7,8 @@
     "description": "Save and manage videos with timestamps.",
     "permissions": [
         "storage",
-        "windows" 
+        "windows",
+        "tabs"
     ],
     "background": {
         "service_worker": "background.js"
@@ -34,6 +35,14 @@
             "js": ["content.js"]
         }
     ],
+    "host_permissions": [
+        "http://localhost/*"
+    ],
+    "externally_connectable": {
+        "matches": [
+            "*://localhost/*"
+        ]
+    },
     "web_accessible_resources": [{
         "resources": ["icon.png"],
         "matches": ["*://www.youtube.com/*"]

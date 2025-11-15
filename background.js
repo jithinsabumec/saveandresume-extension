@@ -1,5 +1,7 @@
 // Empty for now, but can be used to manage more complex operations later
 
+const AUTH_SUCCESS = 'AUTH_SUCCESS';
+
 let watchlistWindow = null; 
 
 chrome.action.onClicked.addListener(() => {
@@ -33,6 +35,36 @@ chrome.commands.onCommand.addListener((command) => {
             chrome.tabs.sendMessage(tabs[0].id, { action: "addTimestamp" });
         });
     }
+});
+
+chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== AUTH_SUCCESS) {
+        return;
+    }
+
+    const { user, token } = message;
+
+    chrome.storage.local.set({ user, token }, () => {
+        if (chrome.runtime.lastError) {
+            console.error('Failed to store auth data:', chrome.runtime.lastError);
+        }
+
+        chrome.runtime.sendMessage({ type: AUTH_SUCCESS, user, token }).catch(() => {
+            // Ignore failures if no listeners are available.
+        });
+
+        if (sender.tab && sender.tab.id !== undefined) {
+            chrome.tabs.remove(sender.tab.id, () => {
+                if (chrome.runtime.lastError) {
+                    console.warn('Failed to close auth tab:', chrome.runtime.lastError);
+                }
+            });
+        }
+
+        sendResponse({ received: true });
+    });
+
+    return true; // Keep the message channel open for async response.
 });
 
 // chrome.runtime.onInstalled.addListener(() => {

@@ -1,5 +1,10 @@
 let isEditMode = false;
 
+function handleAuthError(message, error) {
+    console.error(message, error);
+    alert(`${message}. Check the console for details.`);
+}
+
 function openVideo(videoId, currentTime) {
     const url = `https://www.youtube.com/watch?v=${videoId}&t=${Math.floor(currentTime)}s`;
     chrome.tabs.create({ url });
@@ -527,21 +532,101 @@ function toggleEditMode() {
     }
 }
 
-// Setup event listeners
 document.addEventListener('DOMContentLoaded', () => {
     renderWatchlist();
     renderCategoryList();
-    
+
+    const signedOutState = document.getElementById('signed-out-state');
+    const signedInState = document.getElementById('signed-in-state');
+    const signInBtn = document.getElementById('sign-in-btn');
+    const signOutBtn = document.getElementById('sign-out-btn');
+    const userPhoto = document.getElementById('user-photo');
+    const userName = document.getElementById('user-name');
+    const userEmail = document.getElementById('user-email');
+
+    function updateAuthUI(user) {
+        if (user) {
+            signedOutState.style.display = 'none';
+            signedInState.style.display = 'flex';
+            userName.textContent = user.displayName || 'Signed in';
+            userEmail.textContent = user.email || '';
+
+            if (user.photoURL) {
+                userPhoto.src = user.photoURL;
+                userPhoto.style.display = 'block';
+            } else {
+                userPhoto.removeAttribute('src');
+                userPhoto.style.display = 'none';
+            }
+        } else {
+            signedInState.style.display = 'none';
+            signedOutState.style.display = 'flex';
+            userPhoto.removeAttribute('src');
+            userName.textContent = '';
+            userEmail.textContent = '';
+        }
+    }
+
+    function setButtonsDisabled(isDisabled) {
+        signInBtn.disabled = isDisabled;
+        signOutBtn.disabled = isDisabled;
+    }
+
+    signInBtn.addEventListener('click', async () => {
+        if (!window.auth) {
+            handleAuthError('Authentication module not loaded', new Error('window.auth missing'));
+            return;
+        }
+
+        try {
+            setButtonsDisabled(true);
+            const user = await window.auth.signInWithGoogle();
+            updateAuthUI(user);
+        } catch (error) {
+            handleAuthError('Sign-in failed', error);
+        } finally {
+            setButtonsDisabled(false);
+        }
+    });
+
+    signOutBtn.addEventListener('click', async () => {
+        if (!window.auth) {
+            handleAuthError('Authentication module not loaded', new Error('window.auth missing'));
+            return;
+        }
+
+        try {
+            setButtonsDisabled(true);
+            await window.auth.signOut();
+            updateAuthUI(null);
+        } catch (error) {
+            handleAuthError('Sign-out failed', error);
+        } finally {
+            setButtonsDisabled(false);
+        }
+    });
+
+    if (window.auth?.getCurrentUser) {
+        window.auth.getCurrentUser()
+            .then((user) => updateAuthUI(user))
+            .catch((error) => {
+                console.error('Failed to load current user', error);
+                updateAuthUI(null);
+            });
+    } else {
+        updateAuthUI(null);
+    }
+
     // Setup modal event listeners
     document.getElementById('addCategoryBtn').addEventListener('click', showCategoryModal);
     document.getElementById('saveCategoryBtn').addEventListener('click', addNewCategory);
     document.getElementById('cancelCategoryBtn').addEventListener('click', hideCategoryModal);
     document.querySelector('.close-modal').addEventListener('click', hideCategoryModal);
-    
+
     // Setup edit mode toggle
     document.getElementById('editCategoriesBtn').addEventListener('click', toggleEditMode);
     document.getElementById('saveCategoriesBtn').addEventListener('click', toggleEditMode);
-    
+
     // Allow pressing Enter to save category
     document.getElementById('categoryNameInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
