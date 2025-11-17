@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Extension Debug Test</title>
+</head>
+<body>
+    <h1>Extension Debug Test</h1>
+    <button id="testStorage">Test Storage</button>
+    <button id="testTimestamp">Test Timestamp</button>
+    <div id="output"></div>
+
+    <script>
+        document.getElementById('testStorage').addEventListener('click', () => {
+            chrome.storage.local.get(['categories'], (result) => {
+                document.getElementById('output').innerHTML = 
+                    '<h3>Storage Contents:</h3><pre>' + JSON.stringify(result, null, 2) + '</pre>';
+            });
+        });
+
+        document.getElementById('testTimestamp').addEventListener('click', () => {
+            const testData = {
+                videoId: 'test123',
+                title: 'Test Video',
+                currentTime: 120,
+                thumbnail: 'test.jpg',
+                timestamp: Date.now()
+            };
+            
+            chrome.storage.local.get(['categories'], (result) => {
+                const categories = result.categories || { Default: [] };
+                categories.Default.unshift(testData);
+                
+                chrome.storage.local.set({ categories: categories }, () => {
+                    if (chrome.runtime.lastError) {
+                        document.getElementById('output').innerHTML = 
+                            '<h3>Error:</h3><pre>' + chrome.runtime.lastError.message + '</pre>';
+                    } else {
+                        document.getElementById('output').innerHTML = 
+                            '<h3>Test data saved successfully!</h3><pre>' + JSON.stringify(testData, null, 2) + '</pre>';
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
