@@ -307,6 +307,45 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
     });
 }
 
+let lastShortcutHandledAt = 0;
+
+function triggerShortcutCategoryDialog() {
+    if (!isExtensionContextValid()) {
+        handleContextInvalidation();
+        return;
+    }
+
+    const now = Date.now();
+    if (now - lastShortcutHandledAt < 300) {
+        return;
+    }
+    lastShortcutHandledAt = now;
+
+    const videoId = new URLSearchParams(window.location.search).get('v');
+    const videoTitle = document.querySelector('h1.style-scope.ytd-watch-metadata')?.textContent?.trim() || document.title;
+    const video = document.querySelector('video');
+
+    if (!video || !videoId) {
+        console.error('Unable to open category dialog from shortcut: missing video context.');
+        return;
+    }
+
+    const currentTime = video.currentTime;
+    const thumbnailUrl = getVideoThumbnail(videoId);
+    const cleanedTitle = cleanVideoTitle(videoTitle);
+
+    showCategorySelectionDialog(videoId, cleanedTitle, currentTime, thumbnailUrl);
+}
+
+function isEditableShortcutTarget(target) {
+    if (!target) {
+        return false;
+    }
+
+    const tagName = target.tagName ? target.tagName.toLowerCase() : '';
+    return target.isContentEditable || tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+}
+
 // Function to show category selection dialog
 function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) {
     // Remove existing dialog and backdrop if any
@@ -806,33 +845,27 @@ new MutationObserver(() => {
 // Add this at the start of the file
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "addTimestamp") {
-        if (!isExtensionContextValid()) {
-            handleContextInvalidation();
-            return;
-        }
-        
-        const videoId = new URLSearchParams(window.location.search).get('v');
-        const videoTitle = document.querySelector('h1.style-scope.ytd-watch-metadata')?.textContent?.trim() || document.title;
-        const video = document.querySelector('video');
-        if (video) {
-            const currentTime = video.currentTime;
-            const thumbnailUrl = getVideoThumbnail(videoId);
-            const cleanedTitle = cleanVideoTitle(videoTitle);
-            
-            // Check if video already exists before showing dialog
-            findVideoCategory(videoId, (existingCategory) => {
-                if (existingCategory) {
-                    // Video exists, update timestamp directly
-                    console.log(`Video ${videoId} found via shortcut in category ${existingCategory}. Updating timestamp.`);
-                    saveTimestampWithCategory(videoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory);
-                } else {
-                    // Video is new, show category selection dialog
-                    console.log(`Video ${videoId} not found via shortcut. Showing category dialog.`);
-                    showCategorySelectionDialog(videoId, cleanedTitle, currentTime, thumbnailUrl);
-                }
-            });
-        } else {
-            console.error('No video element found.');
-        }
+        triggerShortcutCategoryDialog();
     }
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.defaultPrevented || event.repeat) {
+        return;
+    }
+
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return;
+    }
+
+    if (event.code !== 'KeyS') {
+        return;
+    }
+
+    if (isEditableShortcutTarget(event.target)) {
+        return;
+    }
+
+    event.preventDefault();
+    triggerShortcutCategoryDialog();
 });
