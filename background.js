@@ -553,7 +553,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         sendError(sendResponse, 'UNSUPPORTED_MESSAGE_TYPE');
     })().catch((error) => {
-        console.error('Background message handler failed:', error);
+        const isAuthRequired = error instanceof Error && error.message === 'AUTH_REQUIRED';
+        if (!isAuthRequired) {
+            console.error('Background message handler failed:', error);
+        }
         sendError(sendResponse, error);
     });
 

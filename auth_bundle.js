@@ -15750,7 +15750,7 @@ const auth = getAuth(app);
             throw new Error('Missing oauth2.client_id in manifest.json');
         }
 
-        const redirectUri = chrome.identity.getRedirectURL();
+        const redirectUri = chrome.identity.getRedirectURL('oauth2');
         const state = randomString(32);
         const scopes = Array.from(new Set([
             ...(chrome.runtime.getManifest()?.oauth2?.scopes || []),
@@ -15768,10 +15768,23 @@ const auth = getAuth(app);
         authUrl.searchParams.set('prompt', 'select_account');
         authUrl.searchParams.set('include_granted_scopes', 'true');
 
-        const callbackUrl = await chrome.identity.launchWebAuthFlow({
-            url: authUrl.toString(),
-            interactive: true
-        });
+        let callbackUrl = null;
+        try {
+            callbackUrl = await chrome.identity.launchWebAuthFlow({
+                url: authUrl.toString(),
+                interactive: true
+            });
+        } catch (error) {
+            const message = error?.message || 'Unknown launchWebAuthFlow error';
+            if (message.includes('Authorization page could not be loaded')) {
+                throw new Error(
+                    `Authorization page could not be loaded. ` +
+                    `For launchWebAuthFlow, use a Google OAuth Web client ID and add this exact redirect URI in Google Cloud: ${redirectUri}. ` +
+                    `Current client_id: ${clientId}`
+                );
+            }
+            throw error;
+        }
 
         if (!callbackUrl) {
             throw new Error('Google OAuth flow was cancelled.');
