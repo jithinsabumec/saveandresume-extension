@@ -1,8 +1,86 @@
 let isEditMode = false;
 
+function runtimeRequest(message) {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(message, (response) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+
+            if (!response || response.ok !== true) {
+                reject(new Error(response?.error || 'UNKNOWN_ERROR'));
+                return;
+            }
+
+            resolve(response);
+        });
+    });
+}
+
+const cloudStorage = {
+    get(keys, callback) {
+        runtimeRequest({ type: 'DATA_GET', keys })
+            .then((response) => callback(response.data || {}))
+            .catch((error) => {
+                if (error.message !== 'AUTH_REQUIRED') {
+                    console.error('Failed to fetch cloud data:', error);
+                }
+                callback({});
+            });
+    },
+    set(data, callback) {
+        runtimeRequest({ type: 'DATA_SET', data })
+            .then(() => {
+                if (typeof callback === 'function') callback();
+            })
+            .catch((error) => {
+                console.error('Failed to save cloud data:', error);
+            });
+    }
+};
+
+async function syncAuthSessionToBackground(user) {
+    if (!user?.authSession) {
+        throw new Error('Missing auth session');
+    }
+
+    await runtimeRequest({
+        type: 'AUTH_SYNC',
+        session: user.authSession
+    });
+}
+
+async function clearAuthSessionInBackground() {
+    await runtimeRequest({ type: 'AUTH_CLEAR' });
+}
+
+async function getLocalSummary() {
+    const response = await runtimeRequest({ type: 'DATA_LOCAL_SUMMARY' });
+    return {
+        hasLocalData: Boolean(response.hasLocalData),
+        localVideoCount: Number(response.localVideoCount || 0)
+    };
+}
+
+async function migrateLocalDataToCloud() {
+    return runtimeRequest({ type: 'DATA_MIGRATE_LOCAL' });
+}
+
+function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function handleAuthError(message, error) {
     console.error(message, error);
-    alert(`${message}. Check the console for details.`);
+    const details = error?.message || 'Unknown error';
+
+    if (details.includes('Missing or insufficient permissions')) {
+        alert(`${message}: Firestore permission denied. Update Firestore Security Rules so authenticated users can read/write only their own data (users/{uid}/...).`);
+        return;
+    }
+
+    alert(`${message}: ${details}`);
 }
 
 function openVideo(videoId, currentTime) {
@@ -43,7 +121,7 @@ function escapeForAttributeSelector(value) {
 function removeVideoFromWatchlist(videoId, timestamp, category, event) {
     event.stopPropagation(); 
     
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };
         
         if (categories[category]) {
@@ -62,12 +140,7 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
                     }
                 }
                 
-                chrome.storage.local.set({ categories: categories }, function() {
-                    if (chrome.runtime.lastError) {
-                        console.error('Error saving to storage:', chrome.runtime.lastError);
-                        return;
-                    }
-                    
+                cloudStorage.set({ categories: categories }, function() {
                     // Update the category count in the sidebar
                     updateCategoryCounts();
                     
@@ -110,7 +183,7 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
 
 // Helper function to update category counts in the UI
 function updateCategoryCounts() {
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };
         
         // Update each category count pill
@@ -132,7 +205,7 @@ function updateCategoryCounts() {
 
 // Helper function to update the "All" category count
 function updateAllCategoryCount() {
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || {};
         let totalVideos = 0;
         
@@ -168,7 +241,7 @@ function formatTime(seconds) {
 }
 
 function checkEmptyState() {
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || {};
         let totalVideos = 0;
         
@@ -192,7 +265,7 @@ function checkEmptyState() {
 }
 
 function renderWatchlist() {
-    chrome.storage.local.get(['categories', 'watchlist'], function(result) {
+    cloudStorage.get(['categories', 'watchlist'], function(result) {
         // Check if we need to migrate data from old format
         if (result.watchlist && result.watchlist.length > 0) {
             // This is old format data, migrate it
@@ -308,18 +381,14 @@ function migrateData(watchlist) {
     });
     
     // Update storage with new format and remove old format
-    chrome.storage.local.set({ categories: categories, watchlist: [] }, function() {
-        if (chrome.runtime.lastError) {
-            console.error('Error migrating data:', chrome.runtime.lastError);
-            return;
-        }
+    cloudStorage.set({ categories: categories, watchlist: [] }, function() {
         console.log('Data migration completed successfully');
         renderWatchlist(); // Re-render with new format
     });
 }
 
 function renderCategoryList() {
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };
         const categoryListElement = document.getElementById('categoryList');
         categoryListElement.innerHTML = ''; // Clear existing items
@@ -385,7 +454,7 @@ function renderCategoryList() {
 // Add function to delete category
 function deleteCategory(categoryName) {
     if (confirm(`Are you sure you want to delete the category "${categoryName}" and all its timestamps?`)) {
-        chrome.storage.local.get(['categories'], function(result) {
+        cloudStorage.get(['categories'], function(result) {
             const categories = result.categories || {};
             
             // Cannot delete Default category
@@ -395,7 +464,7 @@ function deleteCategory(categoryName) {
             delete categories[categoryName];
             
             // Save updated categories
-            chrome.storage.local.set({ categories: categories }, function() {
+            cloudStorage.set({ categories: categories }, function() {
                 renderCategoryList();
                 renderWatchlist();
                 
@@ -422,7 +491,7 @@ function filterByCategory(selectedCategory) {
     
     // To avoid any state inconsistencies, always re-render the entire watchlist
     // and then show/hide sections based on the selected category
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || {};
         const watchlistElement = document.getElementById('watchlist');
         let totalVideos = 0;
@@ -599,7 +668,7 @@ function addNewCategory() {
         return;
     }
     
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };
         
         // Check if category already exists
@@ -611,12 +680,7 @@ function addNewCategory() {
         // Add new empty category
         categories[categoryName] = [];
         
-        chrome.storage.local.set({ categories: categories }, function() {
-            if (chrome.runtime.lastError) {
-                console.error('Error saving category:', chrome.runtime.lastError);
-                return;
-            }
-            
+        cloudStorage.set({ categories: categories }, function() {
             hideCategoryModal();
             renderCategoryList();
             console.log('New category added:', categoryName);
@@ -664,7 +728,7 @@ function toggleDropdown(dropdown) {
 
 // Populate category options in dropdown
 function populateCategoryOptions(container, video) {
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };
         container.innerHTML = '';
         
@@ -703,7 +767,7 @@ function populateCategoryOptions(container, video) {
 
 // Add video to category
 function addVideoToCategory(video, category) {
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };
         
         if (!categories[category]) {
@@ -717,7 +781,7 @@ function addVideoToCategory(video, category) {
         
         if (!exists) {
             categories[category].push(video);
-            chrome.storage.local.set({ categories: categories }, function() {
+            cloudStorage.set({ categories: categories }, function() {
                 updateCategoryCounts();
             });
         }
@@ -726,7 +790,7 @@ function addVideoToCategory(video, category) {
 
 // Remove video from category
 function removeVideoFromCategory(video, category) {
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };
         
         if (categories[category]) {
@@ -734,7 +798,7 @@ function removeVideoFromCategory(video, category) {
                 !(v.videoId === video.videoId && v.timestamp === video.timestamp)
             );
             
-            chrome.storage.local.set({ categories: categories }, function() {
+            cloudStorage.set({ categories: categories }, function() {
                 updateCategoryCounts();
                 
                 // Check if video exists in any other category
@@ -805,7 +869,7 @@ function showUndoNotification(video) {
 }
 
 function restoreVideo(video) {
-    chrome.storage.local.get(['categories'], function(result) {
+    cloudStorage.get(['categories'], function(result) {
         const categories = result.categories || { Default: [] };
         
         // Add video back to Default category
@@ -820,7 +884,7 @@ function restoreVideo(video) {
         
         if (!exists) {
             categories.Default.push(video);
-            chrome.storage.local.set({ categories: categories }, function() {
+            cloudStorage.set({ categories: categories }, function() {
                 updateCategoryCounts();
                 renderWatchlist();
             });
@@ -837,10 +901,7 @@ document.addEventListener('click', function(e) {
     }
 });
 
-document.addEventListener('DOMContentLoaded', () => {
-    renderWatchlist();
-    renderCategoryList();
-
+document.addEventListener('DOMContentLoaded', async () => {
     const signedOutState = document.getElementById('signed-out-state');
     const signedInState = document.getElementById('signed-in-state');
     const signInBtn = document.getElementById('sign-in-btn');
@@ -849,8 +910,47 @@ document.addEventListener('DOMContentLoaded', () => {
     const userName = document.getElementById('user-name');
     const userEmail = document.getElementById('user-email');
     const userInfo = signedInState.querySelector('.user-info');
+    const addCategoryBtn = document.getElementById('addCategoryBtn');
+    const editCategoriesBtn = document.getElementById('editCategoriesBtn');
+    const saveCategoriesBtn = document.getElementById('saveCategoriesBtn');
+    const saveCategoryBtn = document.getElementById('saveCategoryBtn');
+    const cancelCategoryBtn = document.getElementById('cancelCategoryBtn');
+    const closeModalBtn = document.querySelector('.close-modal');
+    const categoryNameInput = document.getElementById('categoryNameInput');
+    const migrationHint = document.createElement('div');
+    migrationHint.style.fontSize = '11px';
+    migrationHint.style.color = '#a0a0a0';
+    migrationHint.style.lineHeight = '1.4';
+    migrationHint.style.marginTop = '8px';
+    migrationHint.style.maxWidth = '220px';
+    migrationHint.style.textAlign = 'left';
+    migrationHint.style.display = 'none';
+    signedOutState.appendChild(migrationHint);
+
+    const migrationOverlay = document.createElement('div');
+    migrationOverlay.style.position = 'fixed';
+    migrationOverlay.style.inset = '0';
+    migrationOverlay.style.background = 'rgba(0, 0, 0, 0.55)';
+    migrationOverlay.style.display = 'none';
+    migrationOverlay.style.alignItems = 'center';
+    migrationOverlay.style.justifyContent = 'center';
+    migrationOverlay.style.zIndex = '99999';
+    migrationOverlay.innerHTML = `
+        <div style="background:#191919;border:1px solid #383838;border-radius:8px;padding:16px;max-width:280px;text-align:center;color:#fff;font-family:Manrope,sans-serif;">
+            <div id="migration-overlay-text" style="font-size:14px;line-height:1.4;">Migrating your timestamps...</div>
+        </div>
+    `;
+    document.body.appendChild(migrationOverlay);
+    const migrationOverlayText = migrationOverlay.querySelector('#migration-overlay-text');
 
     function updateAuthUI(user) {
+        const dataActionsEnabled = Boolean(user);
+        [addCategoryBtn, editCategoriesBtn, saveCategoriesBtn, saveCategoryBtn].forEach((button) => {
+            button.disabled = !dataActionsEnabled;
+            button.style.opacity = dataActionsEnabled ? '1' : '0.6';
+            button.style.cursor = dataActionsEnabled ? '' : 'not-allowed';
+        });
+
         if (user) {
             signedOutState.style.display = 'none';
             signedInState.style.display = 'flex';
@@ -879,6 +979,52 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function showMigrationOverlay(message) {
+        migrationOverlayText.textContent = message;
+        migrationOverlay.style.display = 'flex';
+    }
+
+    function hideMigrationOverlay() {
+        migrationOverlay.style.display = 'none';
+    }
+
+    async function refreshSignedOutHint() {
+        try {
+            const summary = await getLocalSummary();
+            if (summary.hasLocalData) {
+                migrationHint.textContent = `${summary.localVideoCount} local timestamps found. Sign in to migrate and sync to Firebase.`;
+                migrationHint.style.display = 'block';
+            } else {
+                migrationHint.textContent = '';
+                migrationHint.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Failed to load local summary:', error);
+            migrationHint.textContent = '';
+            migrationHint.style.display = 'none';
+        }
+    }
+
+    async function runMigrationFlow() {
+        const summary = await getLocalSummary();
+
+        if (!summary.hasLocalData) {
+            await migrateLocalDataToCloud();
+            return;
+        }
+
+        showMigrationOverlay(`Migrating ${summary.localVideoCount} timestamps to Firebase...`);
+        await migrateLocalDataToCloud();
+        showMigrationOverlay('Migration complete. Your timestamps now sync across devices.');
+        await wait(900);
+        hideMigrationOverlay();
+    }
+
+    async function loadCloudDataIntoUI() {
+        renderWatchlist();
+        renderCategoryList();
+    }
+
     function setButtonsDisabled(isDisabled) {
         signInBtn.disabled = isDisabled;
         signOutBtn.disabled = isDisabled;
@@ -893,9 +1039,18 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             setButtonsDisabled(true);
             const user = await window.auth.signInWithGoogle();
+            await syncAuthSessionToBackground(user);
             updateAuthUI(user);
+            try {
+                await runMigrationFlow();
+            } catch (migrationError) {
+                handleAuthError('Migration failed', migrationError);
+            }
+            await loadCloudDataIntoUI();
+            await refreshSignedOutHint();
         } catch (error) {
             handleAuthError('Sign-in failed', error);
+            hideMigrationOverlay();
         } finally {
             setButtonsDisabled(false);
         }
@@ -910,7 +1065,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             setButtonsDisabled(true);
             await window.auth.signOut();
+            await clearAuthSessionInBackground();
             updateAuthUI(null);
+            renderWatchlist();
+            renderCategoryList();
+            await refreshSignedOutHint();
         } catch (error) {
             handleAuthError('Sign-out failed', error);
         } finally {
@@ -919,28 +1078,61 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (window.auth?.getCurrentUser) {
-        window.auth.getCurrentUser()
-            .then((user) => updateAuthUI(user))
-            .catch((error) => {
-                console.error('Failed to load current user', error);
+        try {
+            const user = await window.auth.getCurrentUser();
+            if (user) {
+                await syncAuthSessionToBackground(user);
+                updateAuthUI(user);
+                try {
+                    await runMigrationFlow();
+                } catch (migrationError) {
+                    console.error('Migration flow failed:', migrationError);
+                }
+                await loadCloudDataIntoUI();
+            } else {
+                await clearAuthSessionInBackground();
                 updateAuthUI(null);
-            });
+                renderWatchlist();
+                renderCategoryList();
+            }
+        } catch (error) {
+            console.error('Failed to load current user', error);
+            try {
+                await clearAuthSessionInBackground();
+            } catch (clearError) {
+                console.warn('Failed clearing background auth session:', clearError);
+            }
+            updateAuthUI(null);
+            renderWatchlist();
+            renderCategoryList();
+        } finally {
+            hideMigrationOverlay();
+            await refreshSignedOutHint();
+        }
     } else {
+        try {
+            await clearAuthSessionInBackground();
+        } catch (error) {
+            console.warn('Failed clearing background auth session:', error);
+        }
         updateAuthUI(null);
+        renderWatchlist();
+        renderCategoryList();
+        await refreshSignedOutHint();
     }
 
     // Setup modal event listeners
-    document.getElementById('addCategoryBtn').addEventListener('click', showCategoryModal);
-    document.getElementById('saveCategoryBtn').addEventListener('click', addNewCategory);
-    document.getElementById('cancelCategoryBtn').addEventListener('click', hideCategoryModal);
-    document.querySelector('.close-modal').addEventListener('click', hideCategoryModal);
+    addCategoryBtn.addEventListener('click', showCategoryModal);
+    saveCategoryBtn.addEventListener('click', addNewCategory);
+    cancelCategoryBtn.addEventListener('click', hideCategoryModal);
+    closeModalBtn.addEventListener('click', hideCategoryModal);
 
     // Setup edit mode toggle
-    document.getElementById('editCategoriesBtn').addEventListener('click', toggleEditMode);
-    document.getElementById('saveCategoriesBtn').addEventListener('click', toggleEditMode);
+    editCategoriesBtn.addEventListener('click', toggleEditMode);
+    saveCategoriesBtn.addEventListener('click', toggleEditMode);
 
     // Allow pressing Enter to save category
-    document.getElementById('categoryNameInput').addEventListener('keypress', (e) => {
+    categoryNameInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             addNewCategory();
         }

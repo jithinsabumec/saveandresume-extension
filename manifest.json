@@ -47,7 +47,10 @@
             ]
         }
     ],
-    "host_permissions": [],
+    "host_permissions": [
+        "https://firestore.googleapis.com/*",
+        "https://securetoken.googleapis.com/*"
+    ],
     "web_accessible_resources": [
         {
             "resources": [

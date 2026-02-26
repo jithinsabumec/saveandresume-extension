@@ -15712,12 +15712,24 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
 (function () {
-    function mapUser(user) {
+    async function mapUser(user) {
+        const idTokenResult = await user.getIdTokenResult();
+        const expiresAt = Date.parse(idTokenResult.expirationTime);
+
         return {
             uid: user.uid,
             displayName: user.displayName,
             email: user.email,
-            photoURL: user.photoURL
+            photoURL: user.photoURL,
+            authSession: {
+                uid: user.uid,
+                displayName: user.displayName || '',
+                email: user.email || '',
+                photoURL: user.photoURL || '',
+                idToken: idTokenResult.token,
+                refreshToken: user.refreshToken,
+                expiresAt: Number.isFinite(expiresAt) ? expiresAt : (Date.now() + 55 * 60 * 1000)
+            }
         };
     }
 
@@ -15794,7 +15806,7 @@ const auth = getAuth(app);
             const credential = GoogleAuthProvider.credential(null, accessToken);
             const result = await signInWithCredential(auth, credential);
             console.log('Sign in successful:', result.user.uid);
-            return mapUser(result.user);
+            return await mapUser(result.user);
         } catch (error) {
             console.error('Firebase sign-in error:', error);
             throw error;
@@ -15816,10 +15828,10 @@ const auth = getAuth(app);
 
     async function getCurrentUser() {
         return new Promise((resolve) => {
-            const unsubscribe = auth.onAuthStateChanged((user) => {
+            const unsubscribe = auth.onAuthStateChanged(async (user) => {
                 unsubscribe();
                 if (user) {
-                    resolve(mapUser(user));
+                    resolve(await mapUser(user));
                 } else {
                     resolve(null);
                 }
