@@ -907,9 +907,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const signInBtn = document.getElementById('sign-in-btn');
     const signOutBtn = document.getElementById('sign-out-btn');
     const userPhoto = document.getElementById('user-photo');
-    const userName = document.getElementById('user-name');
-    const userEmail = document.getElementById('user-email');
-    const userInfo = signedInState.querySelector('.user-info');
     const addCategoryBtn = document.getElementById('addCategoryBtn');
     const editCategoriesBtn = document.getElementById('editCategoriesBtn');
     const saveCategoriesBtn = document.getElementById('saveCategoriesBtn');
@@ -954,28 +951,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (user) {
             signedOutState.style.display = 'none';
             signedInState.style.display = 'flex';
-            userName.textContent = user.displayName || 'Signed in';
-            userEmail.textContent = user.email || '';
-            if (userInfo) {
-                userInfo.style.display = 'flex';
-            }
 
             if (user.photoURL) {
+                const tooltipParts = [];
+                if (user.displayName) tooltipParts.push(user.displayName);
+                if (user.email) tooltipParts.push(user.email);
+                const tooltipText = tooltipParts.join('\n') || 'Signed in account';
+
                 userPhoto.src = user.photoURL;
                 userPhoto.style.display = 'block';
+                userPhoto.title = tooltipText;
+                userPhoto.setAttribute('aria-label', tooltipText);
             } else {
                 userPhoto.removeAttribute('src');
                 userPhoto.style.display = 'none';
+                userPhoto.removeAttribute('title');
+                userPhoto.removeAttribute('aria-label');
             }
         } else {
             signedInState.style.display = 'none';
             signedOutState.style.display = 'flex';
             userPhoto.removeAttribute('src');
-            userName.textContent = '';
-            userEmail.textContent = '';
-            if (userInfo) {
-                userInfo.style.display = 'none';
-            }
+            userPhoto.removeAttribute('title');
+            userPhoto.removeAttribute('aria-label');
         }
     }
 

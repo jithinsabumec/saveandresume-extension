@@ -22,7 +22,7 @@ body {
 #signed-in-state {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 4px;
 }
 
 #auth-section .user-details {
@@ -34,8 +34,8 @@ body {
 }
 
 #auth-section #user-photo {
-    width: 36px;
-    height: 36px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     object-fit: cover;
     border: 1px solid #2D2D2D;
@@ -74,10 +74,10 @@ body {
 }
 
 .sign-out-button {
-    background: transparent;
-    border: none;
-    padding: 6px;
-    border-radius: 4px;
+    background: #474750;
+    border: 1px solid #585864;
+    padding: 8px;
+    border-radius: 999px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -89,23 +89,6 @@ body {
 
 .sign-out-button img {
     display: block;
-}
-
-#auth-section #user-name {
-    font-size: 13px;
-    color: #ffffff;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-#auth-section #user-email {
-    font-size: 12px;
-    color: #7C7C7C;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .container {
@@ -213,6 +196,7 @@ main {
         transform: scaleX(1);
         background: #B82C4F;
     }
+
     to {
         transform: scaleX(0);
         background: #2C2C2C;
@@ -267,7 +251,8 @@ main {
     gap: 4px;
 }
 
-.category-item:hover, .add-category-button:hover {
+.category-item:hover,
+.add-category-button:hover {
     background: #242424;
     border-color: #404040;
 }
@@ -316,37 +301,47 @@ main {
     background: #B82C4F;
     color: #ffffff;
 }
+
 .edit-mode .category-item {
-    padding-right: 6px; /* Reduced right padding */
+    padding-right: 6px;
+    /* Reduced right padding */
 }
 
 /* Keep All and Default buttons size consistent */
 .edit-mode .category-item[data-category="all"],
 .edit-mode .category-item[data-category="Default"] {
-    padding-right: 12px; /* Keep original padding for All and Default buttons */
+    padding-right: 12px;
+    /* Keep original padding for All and Default buttons */
 }
 
 
 
 /* Style for the delete button on category items */
 .delete-category-btn {
-    display: none; /* Hidden by default */
-    width: 18px; /* Width for touch target */
+    display: none;
+    /* Hidden by default */
+    width: 18px;
+    /* Width for touch target */
     height: 18px;
     color: #AAAAAA;
     cursor: pointer;
     transition: all 0.2s ease;
     line-height: 0;
     flex-shrink: 0;
-    border-radius: 2; /* Remove border radius for square appearance */
-    position: relative; /* For hover effect */
-    margin-left: 2px; /* Remove margin */
-    padding: 0; /* Remove padding */
+    border-radius: 2;
+    /* Remove border radius for square appearance */
+    position: relative;
+    /* For hover effect */
+    margin-left: 2px;
+    /* Remove margin */
+    padding: 0;
+    /* Remove padding */
 }
 
 /* Edit mode class to show delete buttons */
 .edit-mode .delete-category-btn {
-    display: flex; /* Show in edit mode */
+    display: flex;
+    /* Show in edit mode */
     align-items: center;
     justify-content: center;
 }
@@ -355,13 +350,15 @@ main {
     display: block;
     width: 12px;
     height: 12px;
-    position: relative; /* Ensure it stays above the hover effect */
+    position: relative;
+    /* Ensure it stays above the hover effect */
     z-index: 2;
 }
 
 .delete-category-btn:hover {
     color: #ffffff;
-    background-color: #454545; /* Red background on hover */
+    background-color: #454545;
+    /* Red background on hover */
     border-radius: 30px;
 }
 
@@ -432,8 +429,10 @@ main {
     color: #ffffff;
     font-family: 'Manrope', sans-serif;
     box-sizing: border-box;
-    -webkit-appearance: none; /* Remove default Safari/Chrome appearance */
-    appearance: none; /* Remove default appearance */
+    -webkit-appearance: none;
+    /* Remove default Safari/Chrome appearance */
+    appearance: none;
+    /* Remove default appearance */
 }
 
 .modal-buttons {
@@ -575,6 +574,7 @@ footer {
         opacity: 0;
         transform: translateY(10px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -776,6 +776,7 @@ footer {
     from {
         opacity: 1;
     }
+
     to {
         opacity: 0;
     }
@@ -810,14 +811,14 @@ footer {
     padding: 12px 0;
 }
 
-.get-in-touch{
+.get-in-touch {
     color: #0090FF;
     text-decoration: underline;
     cursor: pointer;
     font-weight: semibold;
 }
 
-.footer-text{
+.footer-text {
     display: flex;
     flex-direction: row;
     gap: 4px;
@@ -826,7 +827,8 @@ footer {
 /* Global style to remove default focus outline and add a custom one */
 *:focus {
     outline: none;
-    box-shadow: 0 0 0 1px rgba(121, 121, 121, 0.6); /* Brighter white glow */
+    box-shadow: 0 0 0 1px rgba(121, 121, 121, 0.6);
+    /* Brighter white glow */
     transition: box-shadow 0.2s ease;
 }
 
@@ -865,4 +867,3 @@ footer {
 .edit-mode .save-categories-button {
     display: block;
 }
-
