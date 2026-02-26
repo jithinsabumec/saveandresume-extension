@@ -55,7 +55,8 @@
     "web_accessible_resources": [
         {
             "resources": [
-                "icon.png"
+                "icon.png",
+                "timestamp.svg"
             ],
             "matches": [
                 "*://www.youtube.com/*"

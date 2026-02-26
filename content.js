@@ -1,5 +1,5 @@
 // Function to clean video title
-function cleanVideoTitle(title) { 
+function cleanVideoTitle(title) {
     return title
         .replace(/^\([^)]*\)\s*/, '')  // Remove brackets at start
         .replace(/^[\[\]0-9]+\s*/, '') // Remove numbers in brackets
@@ -9,30 +9,30 @@ function cleanVideoTitle(title) {
 // Function to format time adaptively
 function formatTime(seconds) {
     if (isNaN(seconds)) return "00:00";
-    
+
     const days = Math.floor(seconds / (24 * 60 * 60));
     const remainingSecondsAfterDays = seconds % (24 * 60 * 60);
     const hours = Math.floor(remainingSecondsAfterDays / (60 * 60));
     const remainingSecondsAfterHours = remainingSecondsAfterDays % (60 * 60);
     const minutes = Math.floor(remainingSecondsAfterHours / 60);
     const remainingSeconds = Math.floor(remainingSecondsAfterHours % 60);
-    
+
     let parts = [];
-    
+
     // Only add days if there are any
     if (days > 0) {
         parts.push(days.toString().padStart(2, '0'));
     }
-    
+
     // Only add hours if there are any or if we have days
     if (hours > 0 || days > 0) {
         parts.push(hours.toString().padStart(2, '0'));
     }
-    
+
     // Always add minutes and seconds
     parts.push(minutes.toString().padStart(2, '0'));
     parts.push(remainingSeconds.toString().padStart(2, '0'));
-    
+
     return parts.join(':');
 }
 
@@ -81,7 +81,7 @@ function showCustomPopup(data) {
         handleContextInvalidation();
         return;
     }
-    
+
     // Remove existing popup if any
     const existingPopup = document.getElementById('yt-watchlist-popup');
     if (existingPopup) {
@@ -219,13 +219,13 @@ function handleContextInvalidation() {
     if (existingBtn) {
         existingBtn.remove();
     }
-    
+
     // Remove any existing reload prompt
     const existingPrompt = document.getElementById('extension-reload-prompt');
     if (existingPrompt) {
         return; // Already showing prompt
     }
-    
+
     // Show a reload prompt
     const reloadPrompt = document.createElement('div');
     reloadPrompt.id = 'extension-reload-prompt';
@@ -246,7 +246,7 @@ function handleContextInvalidation() {
     `;
     reloadPrompt.innerHTML = 'Extension updated. <strong>Click to reload page</strong>';
     reloadPrompt.onclick = () => location.reload();
-    
+
     document.body.appendChild(reloadPrompt);
 }
 
@@ -287,12 +287,12 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
         handleContextInvalidation();
         return;
     }
-    
+
     const currentVideoId = new URLSearchParams(window.location.search).get('v');
     const currentTitle = document.querySelector('h1.style-scope.ytd-watch-metadata')?.textContent?.trim() || document.title;
     const thumbnailUrl = getVideoThumbnail(currentVideoId);
     const cleanedTitle = cleanVideoTitle(currentTitle);
-    
+
     // Check if video already exists in any category
     findVideoCategory(currentVideoId, (existingCategory) => {
         if (existingCategory) {
@@ -353,7 +353,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     const existingBackdrop = document.getElementById('category-selection-backdrop');
     if (existingDialog) existingDialog.remove();
     if (existingBackdrop) existingBackdrop.remove();
-    
+
     // Create dialog container
     const dialog = document.createElement('div');
     dialog.id = 'category-selection-dialog';
@@ -383,7 +383,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
         fontLink.href = 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Manrope:wght@400;500;600&display=swap';
         document.head.appendChild(fontLink);
     }
-    
+
     // Add backdrop
     const backdrop = document.createElement('div');
     backdrop.id = 'category-selection-backdrop'; // Give backdrop an ID
@@ -394,12 +394,17 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     backdrop.style.bottom = '0';
     backdrop.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
     backdrop.style.zIndex = '9999';
-    
+
     // Get formatted time for display
     const formattedTime = formatTime(currentTime);
-    
+
     // Helper function to close dialog and backdrop
+    let removeCategoryDropdownDocumentListener = null;
     const closeDialog = () => {
+        if (removeCategoryDropdownDocumentListener) {
+            document.removeEventListener('click', removeCategoryDropdownDocumentListener);
+            removeCategoryDropdownDocumentListener = null;
+        }
         dialog.remove();
         backdrop.remove();
     };
@@ -409,20 +414,20 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
             closeDialog();
         }
     };
-    
+
     // Create dialog header
     const header = document.createElement('div');
     header.style.display = 'flex';
     header.style.justifyContent = 'space-between';
     header.style.alignItems = 'center';
-    
+
     const headerTitle = document.createElement('h3');
     headerTitle.textContent = 'Assign Category';
     headerTitle.style.margin = '0';
     headerTitle.style.fontSize = '18px';
     headerTitle.style.fontWeight = '500';
     headerTitle.style.fontFamily = 'Manrope, sans-serif';
-    
+
     const closeButton = document.createElement('button');
     closeButton.innerHTML = '&times;';
     closeButton.style.background = 'none';
@@ -432,36 +437,40 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     closeButton.style.cursor = 'pointer';
     closeButton.style.padding = '0';
     closeButton.onclick = closeDialog;
-    
+
     header.appendChild(headerTitle);
     header.appendChild(closeButton);
     dialog.appendChild(header);
-    
+
     // Create timestamp display
     const timestampInfo = document.createElement('div');
-    timestampInfo.style.backgroundColor = '#242424';
-    timestampInfo.style.padding = '12px';
-    timestampInfo.style.borderRadius = '4px';
+    timestampInfo.style.backgroundColor = '#191919';
+    timestampInfo.style.padding = '8px';
+    timestampInfo.style.borderRadius = '8px';
     timestampInfo.style.display = 'flex';
     timestampInfo.style.alignItems = 'center';
     timestampInfo.style.gap = '12px';
-    timestampInfo.style.border = '1px solid #404040';
-    
+    timestampInfo.style.border = '1px solid #2D2D2D';
+
     const thumbnailImg = document.createElement('img');
     thumbnailImg.src = thumbnailUrl;
-    thumbnailImg.style.width = '80px';
-    thumbnailImg.style.height = '45px';
-    thumbnailImg.style.borderRadius = '4px';
+    thumbnailImg.style.width = '100px';
+    thumbnailImg.style.height = '56px';
+    thumbnailImg.style.borderRadius = '6px';
     thumbnailImg.style.objectFit = 'cover';
-    
+
     const infoText = document.createElement('div');
     infoText.style.display = 'flex';
     infoText.style.flexDirection = 'column';
     infoText.style.gap = '4px';
-    
+    infoText.style.flex = '1';
+    infoText.style.minWidth = '0';
+
     const titleText = document.createElement('div');
     titleText.textContent = title;
     titleText.style.fontSize = '14px';
+    titleText.style.fontWeight = '500';
+    titleText.style.color = '#ffffff';
     titleText.style.lineHeight = '1.4';
     titleText.style.overflow = 'hidden';
     titleText.style.display = '-webkit-box';
@@ -469,79 +478,251 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     titleText.style.webkitBoxOrient = 'vertical';
     titleText.style.textOverflow = 'ellipsis';
     titleText.style.fontFamily = 'Manrope, sans-serif';
-    
+
     const timeText = document.createElement('div');
-    // Change timestamp value color to grey (#7C7C7C)
-    timeText.innerHTML = `
-        <span style="color: #7C7C7C; font-size: 12px; font-family: 'Manrope', sans-serif;">Timestamp - </span>
-        <span style="font-family: 'Space Mono', monospace !important; font-size: 12px; font-weight: 400 !important; color: #7C7C7C;">${formattedTime}</span>
-    `;
-    
+    timeText.style.display = 'flex';
+    timeText.style.alignItems = 'center';
+    timeText.style.gap = '4px';
+
+    if (isExtensionContextValid()) {
+        const timestampIcon = document.createElement('img');
+        timestampIcon.src = chrome.runtime.getURL('timestamp.svg');
+        timestampIcon.alt = 'Timestamp';
+        timestampIcon.style.width = '12px';
+        timestampIcon.style.height = '12px';
+        timestampIcon.style.display = 'block';
+        timeText.appendChild(timestampIcon);
+    }
+
+    const timeValue = document.createElement('span');
+    timeValue.textContent = formattedTime;
+    timeValue.style.fontFamily = "'Space Mono', monospace";
+    timeValue.style.fontSize = '12px';
+    timeValue.style.fontWeight = '400';
+    timeValue.style.color = '#7C7C7C';
+    timeText.appendChild(timeValue);
+
     infoText.appendChild(titleText);
     infoText.appendChild(timeText);
-    
+
     timestampInfo.appendChild(thumbnailImg);
     timestampInfo.appendChild(infoText);
     dialog.appendChild(timestampInfo);
-    
+
     // Create category selection
     const categorySection = document.createElement('div');
     categorySection.style.display = 'flex';
     categorySection.style.flexDirection = 'column';
     categorySection.style.gap = '8px';
-    
+
     const categoryLabel = document.createElement('label');
     categoryLabel.textContent = 'Choose a category';
     categoryLabel.style.fontSize = '14px';
+    categoryLabel.style.fontWeight = '500';
+    categoryLabel.style.color = '#ffffff';
     categoryLabel.style.fontFamily = 'Manrope, sans-serif';
-    
-    const categorySelect = document.createElement('select');
-    categorySelect.id = 'category-select';
-    categorySelect.style.backgroundColor = '#242424';
-    categorySelect.style.border = '1px solid #393838';
-    categorySelect.style.borderRadius = '4px';
-    categorySelect.style.padding = '8px';
-    categorySelect.style.color = '#ffffff';
-    categorySelect.style.fontFamily = 'Manrope, sans-serif';
-    categorySelect.style.width = '100%';
-    categorySelect.style.appearance = 'auto';
-    
-    // Add "Create new..." option
-    const createNewOption = document.createElement('option');
-    createNewOption.value = 'create-new';
-    createNewOption.textContent = '+ Create new category';
-    createNewOption.style.fontFamily = 'Manrope, sans-serif';
-    
+
+    const categoryDropdown = document.createElement('div');
+    categoryDropdown.style.position = 'relative';
+    categoryDropdown.style.width = '100%';
+
+    const categoryTrigger = document.createElement('button');
+    categoryTrigger.type = 'button';
+    categoryTrigger.style.width = '100%';
+    categoryTrigger.style.minHeight = '44px';
+    categoryTrigger.style.display = 'flex';
+    categoryTrigger.style.alignItems = 'center';
+    categoryTrigger.style.justifyContent = 'space-between';
+    categoryTrigger.style.padding = '10px 12px';
+    categoryTrigger.style.backgroundColor = '#242424';
+    categoryTrigger.style.border = '1px solid #393838';
+    categoryTrigger.style.borderRadius = '8px';
+    categoryTrigger.style.color = '#ffffff';
+    categoryTrigger.style.fontSize = '14px';
+    categoryTrigger.style.fontWeight = '500';
+    categoryTrigger.style.fontFamily = 'Manrope, sans-serif';
+    categoryTrigger.style.cursor = 'pointer';
+    categoryTrigger.style.boxSizing = 'border-box';
+    categoryTrigger.style.outline = 'none';
+    categoryTrigger.style.boxShadow = 'none';
+    categoryTrigger.setAttribute('aria-haspopup', 'listbox');
+    categoryTrigger.setAttribute('aria-expanded', 'false');
+
+    const categoryTriggerText = document.createElement('span');
+    categoryTriggerText.textContent = 'Default';
+
+    const categoryTriggerChevron = document.createElement('span');
+    categoryTriggerChevron.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256"><path fill="#ffffff" d="M208.49,104.49a8,8,0,0,1,0,11.31l-72,72a8,8,0,0,1-11.31,0l-72-72a8,8,0,0,1,11.31-11.31L128,168l63.51-63.52A8,8,0,0,1,208.49,104.49Z"></path></svg>`;
+    categoryTriggerChevron.style.display = 'inline-flex';
+
+    categoryTrigger.appendChild(categoryTriggerText);
+    categoryTrigger.appendChild(categoryTriggerChevron);
+
+    const categoryDropdownMenu = document.createElement('div');
+    categoryDropdownMenu.style.position = 'absolute';
+    categoryDropdownMenu.style.top = 'calc(100% + 6px)';
+    categoryDropdownMenu.style.left = '0';
+    categoryDropdownMenu.style.right = '0';
+    categoryDropdownMenu.style.backgroundColor = '#191919';
+    categoryDropdownMenu.style.border = '1px solid #2D2D2D';
+    categoryDropdownMenu.style.borderRadius = '14px';
+    categoryDropdownMenu.style.boxShadow = '0 10px 24px rgba(0, 0, 0, 0.35)';
+    categoryDropdownMenu.style.padding = '4px';
+    categoryDropdownMenu.style.boxSizing = 'border-box';
+    categoryDropdownMenu.style.overflow = 'hidden';
+    categoryDropdownMenu.style.zIndex = '10001';
+    categoryDropdownMenu.style.display = 'none';
+
+    const categoryOptionsList = document.createElement('div');
+    categoryOptionsList.style.display = 'flex';
+    categoryOptionsList.style.flexDirection = 'column';
+    categoryOptionsList.style.gap = '0';
+    categoryOptionsList.style.width = '100%';
+    categoryOptionsList.style.boxSizing = 'border-box';
+    categoryDropdownMenu.appendChild(categoryOptionsList);
+
+    categoryDropdown.appendChild(categoryTrigger);
+    categoryDropdown.appendChild(categoryDropdownMenu);
+
     const newCategoryInput = document.createElement('input');
     newCategoryInput.type = 'text';
     newCategoryInput.placeholder = 'Enter new category name';
     newCategoryInput.style.backgroundColor = '#242424';
     newCategoryInput.style.border = '1px solid #393838';
-    newCategoryInput.style.borderRadius = '4px';
-    newCategoryInput.style.padding = '8px';
+    newCategoryInput.style.borderRadius = '8px';
+    newCategoryInput.style.padding = '10px 12px';
     newCategoryInput.style.color = '#ffffff';
     newCategoryInput.style.fontFamily = 'Manrope, sans-serif';
     newCategoryInput.style.width = '100%';
     newCategoryInput.style.display = 'none';
     newCategoryInput.style.boxSizing = 'border-box';
     newCategoryInput.style.outline = 'none';
-    newCategoryInput.onfocus = function() {
-        this.style.outline = 'none';
-        this.style.boxShadow = '0 0 0 1px rgba(121, 121, 121, 0.6)';
-        this.style.borderColor = 'transparent';
-        this.style.transition = 'box-shadow 0.2s ease, border-color 0.2s ease';
+    newCategoryInput.style.boxShadow = 'none';
+
+    const selectedTickIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 6"><path fill="#1FA700" d="M3.359 6L0 2.64l.947-.947 2.412 2.407L9.053 0 10 .947 3.359 6Z"/></svg>';
+    let selectedCategoryValue = 'Default';
+    let availableCategories = ['Default'];
+
+    const closeCategoryDropdown = () => {
+        categoryDropdownMenu.style.display = 'none';
+        categoryTrigger.setAttribute('aria-expanded', 'false');
     };
-    newCategoryInput.onblur = function() {
-        this.style.boxShadow = 'none';
-        this.style.borderColor = '#393838';
+
+    const setSelectedCategory = (categoryName) => {
+        selectedCategoryValue = categoryName;
+        categoryTriggerText.textContent = categoryName;
+        categoryTrigger.style.display = 'flex';
+        newCategoryInput.style.display = 'none';
     };
+
+    const createCategoryRow = (label, value, isCreateNew = false) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.style.appearance = 'none';
+        row.style.webkitAppearance = 'none';
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.gap = '8px';
+        row.style.width = '100%';
+        row.style.minHeight = '32px';
+        row.style.padding = '6px 10px';
+        row.style.background = 'transparent';
+        row.style.border = 'none';
+        row.style.borderRadius = '8px';
+        row.style.cursor = 'pointer';
+        row.style.boxSizing = 'border-box';
+        row.style.outline = 'none';
+        row.style.boxShadow = 'none';
+
+        const check = document.createElement('span');
+        check.style.width = '10px';
+        check.style.minWidth = '10px';
+        check.style.height = '6px';
+        check.style.display = 'inline-flex';
+        check.style.alignItems = 'center';
+        check.style.justifyContent = 'center';
+        check.innerHTML = selectedTickIcon;
+
+        const text = document.createElement('span');
+        text.textContent = label;
+        text.style.fontFamily = 'Manrope, sans-serif';
+        text.style.fontSize = '14px';
+        text.style.fontWeight = '500';
+        text.style.lineHeight = '20px';
+        text.style.whiteSpace = 'normal';
+        text.style.overflowWrap = 'anywhere';
+
+        const updateState = () => {
+            const isSelected = !isCreateNew && selectedCategoryValue === value;
+            check.style.opacity = isSelected ? '1' : '0';
+            text.style.color = isSelected ? '#FFFFFF' : '#D2D2D2';
+        };
+        updateState();
+
+        row.onmouseover = () => {
+            row.style.backgroundColor = '#2B2B2B';
+            if (!(!isCreateNew && selectedCategoryValue === value)) {
+                text.style.color = '#FFFFFF';
+            }
+        };
+        row.onmouseout = () => {
+            row.style.backgroundColor = 'transparent';
+            updateState();
+        };
+
+        row.onclick = (e) => {
+            e.stopPropagation();
+            if (isCreateNew) {
+                closeCategoryDropdown();
+                categoryTrigger.style.display = 'none';
+                newCategoryInput.style.display = 'block';
+                newCategoryInput.focus();
+                return;
+            }
+            setSelectedCategory(value);
+            renderCategoryOptions();
+            closeCategoryDropdown();
+        };
+
+        row.appendChild(check);
+        row.appendChild(text);
+        return row;
+    };
+
+    const renderCategoryOptions = () => {
+        categoryOptionsList.innerHTML = '';
+
+        availableCategories.forEach((categoryName) => {
+            categoryOptionsList.appendChild(createCategoryRow(categoryName, categoryName, false));
+        });
+
+        categoryOptionsList.appendChild(createCategoryRow('+ Create new category', 'create-new', true));
+    };
+
+    categoryTrigger.onclick = (e) => {
+        e.stopPropagation();
+        const shouldOpen = categoryDropdownMenu.style.display !== 'block';
+        if (shouldOpen) {
+            categoryDropdownMenu.style.display = 'block';
+            categoryTrigger.setAttribute('aria-expanded', 'true');
+        } else {
+            closeCategoryDropdown();
+        }
+    };
+
+    removeCategoryDropdownDocumentListener = (event) => {
+        if (!categoryDropdown.contains(event.target)) {
+            closeCategoryDropdown();
+        }
+    };
+    document.addEventListener('click', removeCategoryDropdownDocumentListener);
 
     // Load existing categories
     if (!isExtensionContextValid()) {
         handleContextInvalidation();
         return;
     }
-    
+
     getCloudCategories((categories, error) => {
         if (error) {
             closeDialog();
@@ -553,91 +734,66 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
             return;
         }
 
-        // Default option
-        const defaultOption = document.createElement('option');
-        defaultOption.value = 'Default';
-        defaultOption.textContent = 'Default';
-        defaultOption.selected = true;
-        defaultOption.style.fontFamily = 'Manrope, sans-serif';
-        categorySelect.appendChild(defaultOption);
-
-        // Other categories
-        Object.keys(categories)
+        availableCategories = ['Default', ...Object.keys(categories)
             .filter(cat => cat !== 'Default')
             .sort()
-            .forEach(category => {
-                const option = document.createElement('option');
-                option.value = category;
-                option.textContent = category;
-                option.style.fontFamily = 'Manrope, sans-serif';
-                categorySelect.appendChild(option);
-            });
-
-        categorySelect.appendChild(createNewOption);
+        ];
+        renderCategoryOptions();
     });
-    
-    categorySelect.onchange = function() {
-        if (this.value === 'create-new') {
-            // Show new category input
-            this.style.display = 'none';
-            newCategoryInput.style.display = 'block';
-            newCategoryInput.focus();
-        }
-    };
-    
+
     categorySection.appendChild(categoryLabel);
-    categorySection.appendChild(categorySelect);
+    categorySection.appendChild(categoryDropdown);
     categorySection.appendChild(newCategoryInput);
     dialog.appendChild(categorySection);
-    
+
     // Create action buttons
     const buttonsContainer = document.createElement('div');
     buttonsContainer.style.display = 'flex';
     buttonsContainer.style.justifyContent = 'flex-end';
     buttonsContainer.style.gap = '8px';
     buttonsContainer.style.marginTop = '8px';
-    
+
     const cancelButton = document.createElement('button');
     cancelButton.textContent = 'Cancel';
     cancelButton.style.backgroundColor = '#242424';
     cancelButton.style.border = '1px solid #393838';
-    cancelButton.style.borderRadius = '4px';
+    cancelButton.style.borderRadius = '10px';
     cancelButton.style.padding = '8px 12px';
     cancelButton.style.color = '#7C7C7C';
     cancelButton.style.cursor = 'pointer';
     cancelButton.style.fontFamily = 'Manrope, sans-serif';
     cancelButton.style.transition = 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease';
-    cancelButton.onmouseover = function() {
+    cancelButton.onmouseover = function () {
         this.style.backgroundColor = '#333333';
         this.style.borderColor = '#555555';
         this.style.color = '#ffffff';
     };
-    cancelButton.onmouseout = function() {
+    cancelButton.onmouseout = function () {
         this.style.backgroundColor = '#242424';
         this.style.borderColor = '#393838';
         this.style.color = '#7C7C7C';
     };
     cancelButton.onclick = closeDialog;
-    
+
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Save';
     saveButton.style.backgroundColor = '#781D2F';
     saveButton.style.border = '1px solid #ED1A43';
-    saveButton.style.borderRadius = '4px';
+    saveButton.style.borderRadius = '10px';
     saveButton.style.padding = '8px 12px';
     saveButton.style.color = '#ffffff';
     saveButton.style.cursor = 'pointer';
     saveButton.style.fontFamily = 'Manrope, sans-serif';
     saveButton.style.transition = 'background-color 0.2s ease';
-    saveButton.onmouseover = function() {
+    saveButton.onmouseover = function () {
         this.style.backgroundColor = '#611726';
     };
-    saveButton.onmouseout = function() {
+    saveButton.onmouseout = function () {
         this.style.backgroundColor = '#781D2F';
     };
-    saveButton.onclick = function() {
+    saveButton.onclick = function () {
         let selectedCategory;
-        
+
         if (newCategoryInput.style.display === 'block') {
             selectedCategory = newCategoryInput.value.trim();
             if (!selectedCategory) {
@@ -645,17 +801,17 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
                 return;
             }
         } else {
-            selectedCategory = categorySelect.value;
+            selectedCategory = selectedCategoryValue;
         }
-        
+
         saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, selectedCategory);
         closeDialog();
     };
-    
+
     buttonsContainer.appendChild(cancelButton);
     buttonsContainer.appendChild(saveButton);
     dialog.appendChild(buttonsContainer);
-    
+
     // Add dialog and backdrop to page
     document.body.appendChild(backdrop);
     document.body.appendChild(dialog);
@@ -667,15 +823,15 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
         handleContextInvalidation();
         return;
     }
-    
-    const videoData = { 
+
+    const videoData = {
         videoId: videoId,
-        title: title, 
+        title: title,
         currentTime,
         thumbnail: thumbnailUrl,
         timestamp: Date.now()
     };
-    
+
     getCloudCategories((categories, error) => {
         if (error) {
             if (error.message === 'AUTH_REQUIRED') {
@@ -760,18 +916,27 @@ function addButton() {
         handleContextInvalidation();
         return;
     }
-    
+
+    const spaceMonoLinkId = 'save-resume-space-mono-font';
+    if (!document.getElementById(spaceMonoLinkId)) {
+        const spaceMonoLink = document.createElement('link');
+        spaceMonoLink.id = spaceMonoLinkId;
+        spaceMonoLink.rel = 'stylesheet';
+        spaceMonoLink.href = 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap';
+        document.head.appendChild(spaceMonoLink);
+    }
+
     // Remove existing button if any
     const existingBtn = document.getElementById('addToWatchlistBtn');
     if (existingBtn) {
         existingBtn.remove();
     }
-    
+
     const videoId = new URLSearchParams(window.location.search).get('v');
     const videoTitle = document.title;
     const isHomePage = window.location.pathname === '/';
     const isFullscreen = document.fullscreenElement !== null;
-    
+
     // Only add button if:
     // 1. We have a video ID (we're on a video page)
     // 2. We're not on the homepage
@@ -781,15 +946,15 @@ function addButton() {
         const btn = document.createElement('button');
         btn.id = 'addToWatchlistBtn';
         btn.innerText = 'SAVE TIMESTAMP';
-        btn.style.fontFamily = 'Space Grotesk, sans-serif';
+        btn.style.fontFamily = "'Space Mono', monospace";
         btn.style.position = 'fixed';
         btn.style.bottom = '20px';
         btn.style.right = '20px';
-        btn.style.padding = '12px 16px';
+        btn.style.padding = '8px 16px';
         btn.style.background = '#1C1C1C';
         btn.style.color = '#fff';
         btn.style.fontWeight = 'medium';
-        btn.style.borderRadius = '5px';
+        btn.style.borderRadius = '10px';
         btn.style.boxShadow = '0px 9px 57.2px rgba(0, 0, 0, 0.25), 0px 2px 8.5px rgba(0, 0, 0, 0.15)';
         btn.style.cursor = 'pointer';
         btn.style.zIndex = '9999';
@@ -797,13 +962,13 @@ function addButton() {
         btn.style.fontSize = '16px';
         btn.style.letterSpacing = 0;
         btn.style.boxShadow = '0px 0px 29.4px 0px #000;';
-        
-        btn.onclick = function() {
+
+        btn.onclick = function () {
             if (!isExtensionContextValid()) {
                 handleContextInvalidation();
                 return;
             }
-            
+
             const video = document.querySelector('video');
             const currentTime = video.currentTime;
             console.log('Video current time:', currentTime);
@@ -833,14 +998,14 @@ document.addEventListener('fullscreenchange', addButton);
 window.onload = addButton;
 
 // Also watch for URL changes (for single-page-app navigation)
-let lastUrl = location.href; 
+let lastUrl = location.href;
 new MutationObserver(() => {
     const url = location.href;
     if (url !== lastUrl) {
         lastUrl = url;
         addButton();
     }
-}).observe(document, {subtree: true, childList: true});
+}).observe(document, { subtree: true, childList: true });
 
 // Add this at the start of the file
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
