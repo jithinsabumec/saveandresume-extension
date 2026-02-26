@@ -77,19 +77,25 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
     });
 }
 
-// Helper function to update category count in sidebar
-function updateCategoryCount(category, count) {
-    // Find the category item in the sidebar
-    const categoryItem = document.querySelector(`.category-item[data-category="${category}"]`);
-    if (categoryItem) {
-        const categoryText = categoryItem.querySelector('span');
-        if (categoryText) {
-            categoryText.textContent = `${category} (${count})`;
-        }
-    }
-    
-    // Also update the "All" category count
-    updateAllCategoryCount();
+// Helper function to update category counts in the UI
+function updateCategoryCounts() {
+    chrome.storage.local.get(['categories'], function(result) {
+        const categories = result.categories || { Default: [] };
+        
+        // Update each category count pill
+        Object.keys(categories).forEach(category => {
+            const categoryItems = document.querySelectorAll(`[data-category="${category}"]`);
+            categoryItems.forEach(item => {
+                const countPill = item.querySelector('.category-count');
+                if (countPill) {
+                    countPill.textContent = categories[category].length;
+                }
+            });
+        });
+        
+        // Also update the "All" category count
+        updateAllCategoryCount();
+    });
 }
 
 // Helper function to update the "All" category count
@@ -103,10 +109,10 @@ function updateAllCategoryCount() {
             totalVideos += categories[category].length;
         });
         
-        // Update the "All" category count
-        const allCategoryItem = document.querySelector(`.category-item[data-category="all"]`);
-        if (allCategoryItem) {
-            allCategoryItem.textContent = `All (${totalVideos})`;
+        // Update the "All" category count pill
+        const allCountPill = document.getElementById('allCategoryCount');
+        if (allCountPill) {
+            allCountPill.textContent = totalVideos;
         }
     });
 }
@@ -193,20 +199,7 @@ function renderWatchlist() {
             
             if (videos.length === 0) return; // Skip empty categories
             
-            // Create a category section
-            const categorySection = document.createElement('div');
-            categorySection.className = 'category-section';
-            categorySection.setAttribute('data-category', category);
-            
-            // Add category header
-            const categoryHeader = document.createElement('div');
-            categoryHeader.className = 'category-header';
-            categoryHeader.innerHTML = `
-                <div class="category-header-title">${category}</div>
-            `;
-            categorySection.appendChild(categoryHeader);
-            
-            // Add videos for this category
+            // Add videos for this category (without header)
             videos.forEach((video) => {
                 const listItem = document.createElement('li');
                 listItem.className = 'watchlist-item';
@@ -218,22 +211,54 @@ function renderWatchlist() {
                     <img class="thumbnail" src="${video.thumbnail}" alt="${video.title}" />
                     <div class="video-info">
                         <h3 class="video-title">${video.title}</h3>
-                        <span class="video-timestamp-label">Timestamp</span>
-                        <span class="timestamp-separator">-</span>
-                        <span class="timestamp-value">${formatTime(video.currentTime)}</span>
+                        <div class="video-timestamp">
+                            <img src="timestamp.svg" class="timestamp-icon" alt="timestamp" width="16" height="16" />
+                            <span class="timestamp-value">${formatTime(video.currentTime)}</span>
+                        </div>
                     </div>
-                    <button class="remove-button" title="Remove from watchlist">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#666666" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"></path></svg>
-                    </button>
+                    <div class="video-actions">
+                        <button class="three-dot-menu" title="More options">
+                            <img src="menu.svg" width="20" height="20" alt="Menu" />
+                        </button>
+                        <div class="dropdown-menu" style="display: none;">
+                            <div class="menu-section">
+                                <div class="menu-title">Assign to groups:</div>
+                                <div class="category-options">
+                                    <!-- Categories will be populated here -->
+                                </div>
+                            </div>
+                            <div class="menu-divider"></div>
+                            <button class="menu-item delete-item">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#666666" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"></path></svg>
+                                Delete
+                            </button>
+                        </div>
+                    </div>
                 `;
                 
-                const removeButton = listItem.querySelector('.remove-button');
-                removeButton.onclick = (e) => removeVideoFromWatchlist(video.videoId, video.timestamp, category, e);
+                const threeDotMenu = listItem.querySelector('.three-dot-menu');
+                const dropdownMenu = listItem.querySelector('.dropdown-menu');
+                const deleteItem = listItem.querySelector('.delete-item');
                 
-                categorySection.appendChild(listItem);
+                threeDotMenu.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleDropdown(dropdownMenu);
+                    populateCategoryOptions(dropdownMenu.querySelector('.category-options'), video);
+                };
+                
+                // Prevent clicks inside dropdown from bubbling to video card
+                dropdownMenu.onclick = (e) => {
+                    e.stopPropagation();
+                };
+                
+                deleteItem.onclick = (e) => {
+                    e.stopPropagation();
+                    removeVideoFromWatchlist(video.videoId, video.timestamp, category, e);
+                    dropdownMenu.style.display = 'none';
+                };
+                
+                watchlistElement.appendChild(listItem);
             });
-            
-            watchlistElement.appendChild(categorySection);
         });
     });
 }
@@ -267,7 +292,20 @@ function renderCategoryList() {
         // Add "All" category which will show everything
         const allCategory = document.createElement('li');
         allCategory.className = 'category-item active';
-        allCategory.textContent = 'All';
+        
+        // Create category name text
+        const allCategoryText = document.createElement('span');
+        allCategoryText.className = 'category-name';
+        allCategoryText.textContent = 'All';
+        allCategory.appendChild(allCategoryText);
+        
+        // Create video count pill for All category
+        const allCountPill = document.createElement('span');
+        allCountPill.className = 'category-count';
+        allCountPill.id = 'allCategoryCount';
+        allCountPill.textContent = '0';
+        allCategory.appendChild(allCountPill);
+        
         allCategory.setAttribute('data-category', 'all');
         allCategory.onclick = () => filterByCategory('all');
         categoryListElement.appendChild(allCategory);
@@ -278,9 +316,17 @@ function renderCategoryList() {
             categoryItem.className = 'category-item';
             
             // Create a container for category text
+            // Create category name text
             const categoryText = document.createElement('span');
-            categoryText.textContent = `${category} (${categories[category].length})`;
+            categoryText.className = 'category-name';
+            categoryText.textContent = category;
             categoryItem.appendChild(categoryText);
+            
+            // Create video count pill
+            const countPill = document.createElement('span');
+            countPill.className = 'category-count';
+            countPill.textContent = categories[category].length;
+            categoryItem.appendChild(countPill);
             
             // Add delete button (hidden by default, shown in edit mode)
             if (category !== 'Default') {
@@ -423,22 +469,54 @@ function filterByCategory(selectedCategory) {
                     <img class="thumbnail" src="${video.thumbnail}" alt="${video.title}" />
                     <div class="video-info">
                         <h3 class="video-title">${video.title}</h3>
-                        <span class="video-timestamp-label">Timestamp</span>
-                        <span class="timestamp-separator">-</span>
-                        <span class="timestamp-value">${formatTime(video.currentTime)}</span>
+                        <div class="video-timestamp">
+                            <img src="timestamp.svg" class="timestamp-icon" alt="timestamp" width="16" height="16" />
+                            <span class="timestamp-value">${formatTime(video.currentTime)}</span>
+                        </div>
                     </div>
-                    <button class="remove-button" title="Remove from watchlist">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="#666666" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"></path></svg>
-                    </button>
+                    <div class="video-actions">
+                        <button class="three-dot-menu" title="More options">
+                            <img src="menu.svg" width="20" height="20" alt="Menu" />
+                        </button>
+                        <div class="dropdown-menu" style="display: none;">
+                            <div class="menu-section">
+                                <div class="menu-title">Assign to groups:</div>
+                                <div class="category-options">
+                                    <!-- Categories will be populated here -->
+                                </div>
+                            </div>
+                            <div class="menu-divider"></div>
+                            <button class="menu-item delete-item">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#666666" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"></path></svg>
+                                Delete
+                            </button>
+                        </div>
+                    </div>
                 `;
                 
-                const removeButton = listItem.querySelector('.remove-button');
-                removeButton.onclick = (e) => removeVideoFromWatchlist(video.videoId, video.timestamp, category, e);
+                const threeDotMenu = listItem.querySelector('.three-dot-menu');
+                const dropdownMenu = listItem.querySelector('.dropdown-menu');
+                const deleteItem = listItem.querySelector('.delete-item');
                 
-                categorySection.appendChild(listItem);
+                threeDotMenu.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleDropdown(dropdownMenu);
+                    populateCategoryOptions(dropdownMenu.querySelector('.category-options'), video);
+                };
+                
+                // Prevent clicks inside dropdown from bubbling to video card
+                dropdownMenu.onclick = (e) => {
+                    e.stopPropagation();
+                };
+                
+                deleteItem.onclick = (e) => {
+                    e.stopPropagation();
+                    removeVideoFromWatchlist(video.videoId, video.timestamp, category, e);
+                    dropdownMenu.style.display = 'none';
+                };
+                
+                watchlistElement.appendChild(listItem);
             });
-            
-            watchlistElement.appendChild(categorySection);
         });
     });
 }
@@ -531,6 +609,194 @@ function toggleEditMode() {
         saveBtn.style.display = 'none';
     }
 }
+
+// Dropdown menu functionality
+function toggleDropdown(dropdown) {
+    // Close all other dropdowns
+    document.querySelectorAll('.dropdown-menu').forEach(menu => {
+        if (menu !== dropdown) {
+            menu.style.display = 'none';
+        }
+    });
+    
+    // Toggle current dropdown
+    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+}
+
+// Populate category options in dropdown
+function populateCategoryOptions(container, video) {
+    chrome.storage.local.get(['categories'], function(result) {
+        const categories = result.categories || { Default: [] };
+        container.innerHTML = '';
+        
+        Object.keys(categories).sort().forEach(category => {
+            const option = document.createElement('label');
+            option.className = 'category-option';
+            
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = category;
+            
+            // Check if video is in this category
+            const videoInCategory = categories[category].some(v => 
+                v.videoId === video.videoId && v.timestamp === video.timestamp
+            );
+            checkbox.checked = videoInCategory;
+            
+            checkbox.onchange = (e) => {
+                e.stopPropagation();
+                if (checkbox.checked) {
+                    addVideoToCategory(video, category);
+                } else {
+                    removeVideoFromCategory(video, category);
+                }
+            };
+            
+            const label = document.createElement('span');
+            label.textContent = category;
+            
+            option.appendChild(checkbox);
+            option.appendChild(label);
+            container.appendChild(option);
+        });
+    });
+}
+
+// Add video to category
+function addVideoToCategory(video, category) {
+    chrome.storage.local.get(['categories'], function(result) {
+        const categories = result.categories || { Default: [] };
+        
+        if (!categories[category]) {
+            categories[category] = [];
+        }
+        
+        // Check if video already exists in category
+        const exists = categories[category].some(v => 
+            v.videoId === video.videoId && v.timestamp === video.timestamp
+        );
+        
+        if (!exists) {
+            categories[category].push(video);
+            chrome.storage.local.set({ categories: categories }, function() {
+                updateCategoryCounts();
+            });
+        }
+    });
+}
+
+// Remove video from category
+function removeVideoFromCategory(video, category) {
+    chrome.storage.local.get(['categories'], function(result) {
+        const categories = result.categories || { Default: [] };
+        
+        if (categories[category]) {
+            categories[category] = categories[category].filter(v => 
+                !(v.videoId === video.videoId && v.timestamp === video.timestamp)
+            );
+            
+            chrome.storage.local.set({ categories: categories }, function() {
+                updateCategoryCounts();
+                
+                // Check if video exists in any other category
+                let videoExistsInOtherCategory = false;
+                for (const cat in categories) {
+                    if (categories[cat].some(v => v.videoId === video.videoId && v.timestamp === video.timestamp)) {
+                        videoExistsInOtherCategory = true;
+                        break;
+                    }
+                }
+                
+                // If video doesn't exist in any category, show undo notification
+                if (!videoExistsInOtherCategory) {
+                    showUndoNotification(video);
+                }
+                
+                renderWatchlist(); // Re-render to update the display
+            });
+        }
+    });
+}
+
+// Undo notification functionality
+let undoTimeout;
+
+function showUndoNotification(video) {
+    // Clear any existing timeout
+    if (undoTimeout) {
+        clearTimeout(undoTimeout);
+    }
+    
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = 'undo-notification';
+    notification.innerHTML = `
+        <span class="notification-text">Timestamp deleted</span>
+        <button class="undo-button">
+            Undo
+            <div class="undo-timer"></div>
+        </button>
+    `;
+    
+    // Add to body
+    document.body.appendChild(notification);
+    
+    // Start timer animation
+    const timerBar = notification.querySelector('.undo-timer');
+    timerBar.style.animation = 'timerCountdown 5s linear forwards';
+    timerBar.style.display = 'block';
+    
+    // Set up undo button
+    const undoButton = notification.querySelector('.undo-button');
+    undoButton.onclick = () => {
+        clearTimeout(undoTimeout);
+        restoreVideo(video);
+        notification.remove();
+    };
+    
+    // Auto-remove after 5 seconds
+    undoTimeout = setTimeout(() => {
+        notification.remove();
+    }, 5000);
+    
+    // Remove notification when animation ends
+    timerBar.addEventListener('animationend', () => {
+        notification.remove();
+    });
+}
+
+function restoreVideo(video) {
+    chrome.storage.local.get(['categories'], function(result) {
+        const categories = result.categories || { Default: [] };
+        
+        // Add video back to Default category
+        if (!categories.Default) {
+            categories.Default = [];
+        }
+        
+        // Check if video already exists in Default
+        const exists = categories.Default.some(v => 
+            v.videoId === video.videoId && v.timestamp === video.timestamp
+        );
+        
+        if (!exists) {
+            categories.Default.push(video);
+            chrome.storage.local.set({ categories: categories }, function() {
+                updateCategoryCounts();
+                renderWatchlist();
+            });
+        }
+    });
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.video-actions')) {
+        document.querySelectorAll('.dropdown-menu').forEach(menu => {
+            menu.style.display = 'none';
+        });
+    }
+});
 
 document.addEventListener('DOMContentLoaded', () => {
     renderWatchlist();
