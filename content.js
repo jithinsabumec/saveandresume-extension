@@ -41,6 +41,40 @@ function getVideoThumbnail(videoId) {
     return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
 }
 
+function runtimeRequest(message) {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(message, (response) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+
+            if (!response || response.ok !== true) {
+                reject(new Error(response?.error || 'UNKNOWN_ERROR'));
+                return;
+            }
+
+            resolve(response);
+        });
+    });
+}
+
+function getCloudCategories(callback) {
+    runtimeRequest({ type: 'DATA_GET', keys: ['categories'] })
+        .then((response) => callback(response.data?.categories || { Default: [] }, null))
+        .catch((error) => callback(null, error));
+}
+
+function setCloudCategories(categories, callback) {
+    runtimeRequest({ type: 'DATA_SET', data: { categories } })
+        .then(() => {
+            if (typeof callback === 'function') callback(null);
+        })
+        .catch((error) => {
+            if (typeof callback === 'function') callback(error);
+        });
+}
+
 // Function to create and show custom popup
 function showCustomPopup(data) {
     if (!isExtensionContextValid()) {
@@ -140,6 +174,35 @@ function showCustomPopup(data) {
     }, 3000);
 }
 
+function showSignInRequiredPopup() {
+    const existing = document.getElementById('yt-auth-required-popup');
+    if (existing) {
+        existing.remove();
+    }
+
+    const popup = document.createElement('div');
+    popup.id = 'yt-auth-required-popup';
+    popup.style.position = 'fixed';
+    popup.style.top = '20px';
+    popup.style.right = '20px';
+    popup.style.zIndex = '10000';
+    popup.style.background = '#1C1C1C';
+    popup.style.border = '1px solid #A33A4D';
+    popup.style.color = '#ffffff';
+    popup.style.padding = '12px 16px';
+    popup.style.borderRadius = '4px';
+    popup.style.fontFamily = 'Manrope, sans-serif';
+    popup.style.fontSize = '14px';
+    popup.style.maxWidth = '260px';
+    popup.innerHTML = 'Sign in from the extension popup to save timestamps to Firebase.';
+
+    document.body.appendChild(popup);
+
+    setTimeout(() => {
+        popup.remove();
+    }, 3000);
+}
+
 // Function to check if extension context is valid
 function isExtensionContextValid() {
     try {
@@ -193,11 +256,20 @@ function findVideoCategory(videoId, callback) {
         handleContextInvalidation();
         return;
     }
-    
-    chrome.storage.local.get(['categories'], function(result) {
-        const categories = result.categories || {};
+
+    getCloudCategories((categories, error) => {
+        if (error) {
+            if (error.message === 'AUTH_REQUIRED') {
+                showSignInRequiredPopup();
+            } else {
+                console.error('Failed to load categories:', error);
+            }
+            callback(null);
+            return;
+        }
+
         let foundCategory = null;
-        
+
         for (const category in categories) {
             const index = categories[category].findIndex(video => video.videoId === videoId);
             if (index !== -1) {
@@ -431,9 +503,17 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
         return;
     }
     
-    chrome.storage.local.get(['categories'], function(result) {
-        const categories = result.categories || { Default: [] };
-        
+    getCloudCategories((categories, error) => {
+        if (error) {
+            closeDialog();
+            if (error.message === 'AUTH_REQUIRED') {
+                showSignInRequiredPopup();
+            } else {
+                console.error('Failed to load categories:', error);
+            }
+            return;
+        }
+
         // Default option
         const defaultOption = document.createElement('option');
         defaultOption.value = 'Default';
@@ -441,7 +521,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
         defaultOption.selected = true;
         defaultOption.style.fontFamily = 'Manrope, sans-serif';
         categorySelect.appendChild(defaultOption);
-        
+
         // Other categories
         Object.keys(categories)
             .filter(cat => cat !== 'Default')
@@ -453,7 +533,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
                 option.style.fontFamily = 'Manrope, sans-serif';
                 categorySelect.appendChild(option);
             });
-        
+
         categorySelect.appendChild(createNewOption);
     });
     
@@ -557,35 +637,46 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
         timestamp: Date.now()
     };
     
-    chrome.storage.local.get(['categories'], function(result) {
-        const categories = result.categories || { Default: [] };
-        
+    getCloudCategories((categories, error) => {
+        if (error) {
+            if (error.message === 'AUTH_REQUIRED') {
+                showSignInRequiredPopup();
+            } else {
+                console.error('Failed to load categories:', error);
+            }
+            return;
+        }
+
         // Ensure category exists
         if (!categories[category]) {
             categories[category] = [];
         }
-        
+
         // Check if video already exists in this category
         const existingVideoIndex = categories[category].findIndex(video => video.videoId === videoId);
         const formattedTime = formatTime(currentTime);
-        
+
         if (existingVideoIndex === -1) {
             // Video not in this category, add it at the beginning
             categories[category].unshift(videoData);
-            
-            // Save to storage
-            chrome.storage.local.set({ categories: categories }, function() {
-                if (chrome.runtime.lastError) {
-                    console.error('Error saving to storage:', chrome.runtime.lastError);
-                    showCustomPopup({ 
+
+            setCloudCategories(categories, (saveError) => {
+                if (saveError) {
+                    if (saveError.message === 'AUTH_REQUIRED') {
+                        showSignInRequiredPopup();
+                    } else {
+                        console.error('Error saving to cloud:', saveError);
+                    }
+                    showCustomPopup({
                         action: 'error',
-                        time: formattedTime 
+                        time: formattedTime
                     });
                     return;
                 }
-                showCustomPopup({ 
+
+                showCustomPopup({
                     action: 'added',
-                    time: formattedTime 
+                    time: formattedTime
                 });
                 console.log('Timestamp added to category:', category, videoData);
             });
@@ -593,25 +684,29 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
             // Video exists in this category, update its timestamp
             categories[category][existingVideoIndex].currentTime = currentTime;
             categories[category][existingVideoIndex].timestamp = Date.now();
-            categories[category][existingVideoIndex].title = title;  // Update title in case it changed
-            
+            categories[category][existingVideoIndex].title = title;
+
             // Move to the beginning of the category
             const updatedVideo = categories[category].splice(existingVideoIndex, 1)[0];
             categories[category].unshift(updatedVideo);
-            
-            // Save to storage
-            chrome.storage.local.set({ categories: categories }, function() {
-                if (chrome.runtime.lastError) {
-                    console.error('Error saving to storage:', chrome.runtime.lastError);
-                    showCustomPopup({ 
+
+            setCloudCategories(categories, (saveError) => {
+                if (saveError) {
+                    if (saveError.message === 'AUTH_REQUIRED') {
+                        showSignInRequiredPopup();
+                    } else {
+                        console.error('Error saving to cloud:', saveError);
+                    }
+                    showCustomPopup({
                         action: 'error',
-                        time: formattedTime 
+                        time: formattedTime
                     });
                     return;
                 }
-                showCustomPopup({ 
+
+                showCustomPopup({
                     action: 'updated',
-                    time: formattedTime 
+                    time: formattedTime
                 });
                 console.log('Timestamp updated in category:', category, updatedVideo);
             });
