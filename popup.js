@@ -405,6 +405,7 @@ function renderCategoryList(onComplete) {
         const categories = result.categories || { Default: [] };
         const categoryListElement = document.getElementById('categoryList');
         categoryListElement.innerHTML = ''; // Clear existing items
+        const totalVideos = Object.values(categories).reduce((sum, videos) => sum + videos.length, 0);
 
         // Add "All" category which will show everything
         const allCategory = document.createElement('li');
@@ -420,7 +421,7 @@ function renderCategoryList(onComplete) {
         const allCountPill = document.createElement('span');
         allCountPill.className = 'category-count';
         allCountPill.id = 'allCategoryCount';
-        allCountPill.textContent = '0';
+        allCountPill.textContent = totalVideos;
         allCategory.appendChild(allCountPill);
 
         allCategory.setAttribute('data-category', 'all');
@@ -551,6 +552,10 @@ function filterByCategory(selectedCategory) {
             if (b === 'Default') return 1;
             return a.localeCompare(b);
         }).forEach(category => {
+            if (selectedCategory !== 'all' && category !== selectedCategory) {
+                return;
+            }
+
             const videos = categories[category];
 
             if (videos.length === 0) return; // Skip empty categories
