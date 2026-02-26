@@ -12,7 +12,7 @@
         "identity"
     ],
     "oauth2": {
-        "client_id": "444009608561-6eqedlsht9028d12d82h5rk88s0mksrd.apps.googleusercontent.com",
+        "client_id": "169747525486-e9oo8js1gdqm4h2p9qe7r3vro9cj1q5e.apps.googleusercontent.com",
         "scopes": [
             "https://www.googleapis.com/auth/userinfo.email",
             "https://www.googleapis.com/auth/userinfo.profile"

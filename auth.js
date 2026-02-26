@@ -3,6 +3,7 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithCredential, signOut as firebaseSignOut } from "firebase/auth";
 
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
     apiKey: "AIzaSyAyCsypBFTFLTLf5wwky-v0jkMB_ebAsFo",
     authDomain: "save-and-resume.firebaseapp.com",
@@ -17,39 +18,93 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
 (function () {
+    function mapUser(user) {
+        return {
+            uid: user.uid,
+            displayName: user.displayName,
+            email: user.email,
+            photoURL: user.photoURL
+        };
+    }
+
+    function randomString(length = 64) {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+        const array = new Uint8Array(length);
+        crypto.getRandomValues(array);
+        let value = '';
+        for (let i = 0; i < array.length; i += 1) {
+            value += chars[array[i] % chars.length];
+        }
+        return value;
+    }
+
+    async function getGoogleAccessTokenWithWebAuthFlow() {
+        const clientId = chrome.runtime.getManifest()?.oauth2?.client_id;
+        if (!clientId) {
+            throw new Error('Missing oauth2.client_id in manifest.json');
+        }
+
+        const redirectUri = chrome.identity.getRedirectURL();
+        const state = randomString(32);
+        const scopes = Array.from(new Set([
+            ...(chrome.runtime.getManifest()?.oauth2?.scopes || []),
+            'openid',
+            'email',
+            'profile'
+        ]));
+
+        const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        authUrl.searchParams.set('client_id', clientId);
+        authUrl.searchParams.set('redirect_uri', redirectUri);
+        authUrl.searchParams.set('response_type', 'token');
+        authUrl.searchParams.set('scope', scopes.join(' '));
+        authUrl.searchParams.set('state', state);
+        authUrl.searchParams.set('prompt', 'select_account');
+        authUrl.searchParams.set('include_granted_scopes', 'true');
+
+        const callbackUrl = await chrome.identity.launchWebAuthFlow({
+            url: authUrl.toString(),
+            interactive: true
+        });
+
+        if (!callbackUrl) {
+            throw new Error('Google OAuth flow was cancelled.');
+        }
+
+        const callback = new URL(callbackUrl);
+        const hashParams = new URLSearchParams(callback.hash.startsWith('#') ? callback.hash.slice(1) : callback.hash);
+        const callbackError = hashParams.get('error') || callback.searchParams.get('error');
+        if (callbackError) {
+            const description = hashParams.get('error_description') || callback.searchParams.get('error_description');
+            throw new Error(description ? `${callbackError}: ${description}` : callbackError);
+        }
+
+        const callbackState = hashParams.get('state') || callback.searchParams.get('state');
+        if (callbackState !== state) {
+            throw new Error('Google OAuth state mismatch.');
+        }
+
+        const accessToken = hashParams.get('access_token');
+        if (!accessToken) {
+            throw new Error('Google OAuth did not return access_token.');
+        }
+
+        return accessToken;
+    }
+
     async function signInWithGoogle() {
         console.log('Starting signInWithGoogle...');
-        return new Promise((resolve, reject) => {
-            console.log('Calling chrome.identity.getAuthToken...');
-            chrome.identity.getAuthToken({ interactive: true }, async function (token) {
-                if (chrome.runtime.lastError) {
-                    console.error('chrome.identity.getAuthToken error:', chrome.runtime.lastError);
-                    reject(new Error(chrome.runtime.lastError.message));
-                    return;
-                }
-
-                console.log('Got auth token:', token ? 'Token received' : 'No token');
-
-                try {
-                    console.log('Creating credential...');
-                    const credential = GoogleAuthProvider.credential(null, token);
-                    console.log('Signing in with credential...');
-                    const result = await signInWithCredential(auth, credential);
-                    console.log('Sign in successful:', result.user.uid);
-                    const user = result.user;
-
-                    resolve({
-                        uid: user.uid,
-                        displayName: user.displayName,
-                        email: user.email,
-                        photoURL: user.photoURL
-                    });
-                } catch (error) {
-                    console.error('Firebase sign-in error:', error);
-                    reject(error);
-                }
-            });
-        });
+        try {
+            const accessToken = await getGoogleAccessTokenWithWebAuthFlow();
+            console.log('Got OAuth token via launchWebAuthFlow');
+            const credential = GoogleAuthProvider.credential(null, accessToken);
+            const result = await signInWithCredential(auth, credential);
+            console.log('Sign in successful:', result.user.uid);
+            return mapUser(result.user);
+        } catch (error) {
+            console.error('Firebase sign-in error:', error);
+            throw error;
+        }
     }
 
     async function signOut() {
@@ -70,12 +125,7 @@ const auth = getAuth(app);
             const unsubscribe = auth.onAuthStateChanged((user) => {
                 unsubscribe();
                 if (user) {
-                    resolve({
-                        uid: user.uid,
-                        displayName: user.displayName,
-                        email: user.email,
-                        photoURL: user.photoURL
-                    });
+                    resolve(mapUser(user));
                 } else {
                     resolve(null);
                 }

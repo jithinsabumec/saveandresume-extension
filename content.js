@@ -66,9 +66,13 @@ function showCustomPopup(data) {
         </div>
     `;
 
-    // Add styles
-    const style = document.createElement('style');
-    style.textContent = `
+    // Add styles once and reuse.
+    const popupStyleId = 'yt-watchlist-popup-style';
+    let style = document.getElementById(popupStyleId);
+    if (!style) {
+        style = document.createElement('style');
+        style.id = popupStyleId;
+        style.textContent = `
         @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
 
         #yt-watchlist-popup {
@@ -125,8 +129,8 @@ function showCustomPopup(data) {
             }
         }
     `;
-
-    document.head.appendChild(style);
+        document.head.appendChild(style);
+    }
     document.body.appendChild(popup);
 
     // Remove popup after 3 seconds
@@ -259,11 +263,15 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     dialog.style.flexDirection = 'column';
     dialog.style.gap = '16px';
 
-    // Add Space Mono font import to ensure it's available
-    const fontLink = document.createElement('link');
-    fontLink.rel = 'stylesheet';
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Manrope:wght@400;500;600&display=swap';
-    document.head.appendChild(fontLink);
+    // Add fonts once and reuse.
+    const fontLinkId = 'save-resume-fonts';
+    if (!document.getElementById(fontLinkId)) {
+        const fontLink = document.createElement('link');
+        fontLink.id = fontLinkId;
+        fontLink.rel = 'stylesheet';
+        fontLink.href = 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Manrope:wght@400;500;600&display=swap';
+        document.head.appendChild(fontLink);
+    }
     
     // Add backdrop
     const backdrop = document.createElement('div');

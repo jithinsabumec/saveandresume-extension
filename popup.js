@@ -10,6 +10,36 @@ function openVideo(videoId, currentTime) {
     chrome.tabs.create({ url });
 }
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function safeThumbnailUrl(value) {
+    if (typeof value !== 'string') return '';
+    try {
+        const parsed = new URL(value);
+        if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+            return '';
+        }
+        return parsed.href;
+    } catch (error) {
+        return '';
+    }
+}
+
+function escapeForAttributeSelector(value) {
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+        return CSS.escape(String(value));
+    }
+
+    return String(value).replace(/["\\]/g, '\\$&');
+}
+
 function removeVideoFromWatchlist(videoId, timestamp, category, event) {
     event.stopPropagation(); 
     
@@ -39,7 +69,7 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
                     }
                     
                     // Update the category count in the sidebar
-                    updateCategoryCount(category, categories[category] ? categories[category].length : 0);
+                    updateCategoryCounts();
                     
                     // Remove the specific list item from the DOM
                     const listItem = document.querySelector(`.watchlist-item[data-video-id="${videoId}"][data-timestamp="${timestamp}"]`);
@@ -49,7 +79,8 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
                             listItem.remove(); // Remove the item after the animation
                             
                             // Check if category section is now empty
-                            const categorySection = document.querySelector(`.category-section[data-category="${category}"]`);
+                            const safeCategorySelector = escapeForAttributeSelector(category);
+                            const categorySection = document.querySelector(`.category-section[data-category="${safeCategorySelector}"]`);
                             if (categorySection && !categorySection.querySelector('.watchlist-item')) {
                                 categorySection.style.animation = 'fadeOut 0.2s ease-in-out';
                                 setTimeout(() => {
@@ -57,7 +88,7 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
                                     
                                     // Check if we should update the categories list UI
                                     if (category !== 'Default' && !categories[category]) {
-                                        const categoryItem = document.querySelector(`.category-item[data-category="${category}"]`);
+                                        const categoryItem = document.querySelector(`.category-item[data-category="${safeCategorySelector}"]`);
                                         if (categoryItem) {
                                             categoryItem.remove();
                                         }
@@ -84,7 +115,8 @@ function updateCategoryCounts() {
         
         // Update each category count pill
         Object.keys(categories).forEach(category => {
-            const categoryItems = document.querySelectorAll(`[data-category="${category}"]`);
+            const safeCategorySelector = escapeForAttributeSelector(category);
+            const categoryItems = document.querySelectorAll(`[data-category="${safeCategorySelector}"]`);
             categoryItems.forEach(item => {
                 const countPill = item.querySelector('.category-count');
                 if (countPill) {
@@ -206,14 +238,17 @@ function renderWatchlist() {
                 listItem.onclick = () => openVideo(video.videoId, video.currentTime);
                 listItem.setAttribute('data-video-id', video.videoId);
                 listItem.setAttribute('data-timestamp', video.timestamp);
+                const safeTitle = escapeHtml(video.title || 'Untitled video');
+                const safeThumbnail = escapeHtml(safeThumbnailUrl(video.thumbnail));
+                const safeTimestamp = escapeHtml(formatTime(video.currentTime));
                 
                 listItem.innerHTML = `
-                    <img class="thumbnail" src="${video.thumbnail}" alt="${video.title}" />
+                    <img class="thumbnail" src="${safeThumbnail}" alt="${safeTitle}" />
                     <div class="video-info">
-                        <h3 class="video-title">${video.title}</h3>
+                        <h3 class="video-title">${safeTitle}</h3>
                         <div class="video-timestamp">
                             <img src="timestamp.svg" class="timestamp-icon" alt="timestamp" width="16" height="16" />
-                            <span class="timestamp-value">${formatTime(video.currentTime)}</span>
+                            <span class="timestamp-value">${safeTimestamp}</span>
                         </div>
                     </div>
                     <div class="video-actions">
@@ -452,9 +487,10 @@ function filterByCategory(selectedCategory) {
             // Add category header
             const categoryHeader = document.createElement('div');
             categoryHeader.className = 'category-header';
-            categoryHeader.innerHTML = `
-                <div class="category-header-title">${category}</div>
-            `;
+            const categoryHeaderTitle = document.createElement('div');
+            categoryHeaderTitle.className = 'category-header-title';
+            categoryHeaderTitle.textContent = category;
+            categoryHeader.appendChild(categoryHeaderTitle);
             categorySection.appendChild(categoryHeader);
             
             // Add videos for this category
@@ -464,14 +500,17 @@ function filterByCategory(selectedCategory) {
                 listItem.onclick = () => openVideo(video.videoId, video.currentTime);
                 listItem.setAttribute('data-video-id', video.videoId);
                 listItem.setAttribute('data-timestamp', video.timestamp);
+                const safeTitle = escapeHtml(video.title || 'Untitled video');
+                const safeThumbnail = escapeHtml(safeThumbnailUrl(video.thumbnail));
+                const safeTimestamp = escapeHtml(formatTime(video.currentTime));
                 
                 listItem.innerHTML = `
-                    <img class="thumbnail" src="${video.thumbnail}" alt="${video.title}" />
+                    <img class="thumbnail" src="${safeThumbnail}" alt="${safeTitle}" />
                     <div class="video-info">
-                        <h3 class="video-title">${video.title}</h3>
+                        <h3 class="video-title">${safeTitle}</h3>
                         <div class="video-timestamp">
                             <img src="timestamp.svg" class="timestamp-icon" alt="timestamp" width="16" height="16" />
-                            <span class="timestamp-value">${formatTime(video.currentTime)}</span>
+                            <span class="timestamp-value">${safeTimestamp}</span>
                         </div>
                     </div>
                     <div class="video-actions">
@@ -809,6 +848,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const userPhoto = document.getElementById('user-photo');
     const userName = document.getElementById('user-name');
     const userEmail = document.getElementById('user-email');
+    const userInfo = signedInState.querySelector('.user-info');
 
     function updateAuthUI(user) {
         if (user) {
@@ -816,6 +856,9 @@ document.addEventListener('DOMContentLoaded', () => {
             signedInState.style.display = 'flex';
             userName.textContent = user.displayName || 'Signed in';
             userEmail.textContent = user.email || '';
+            if (userInfo) {
+                userInfo.style.display = 'flex';
+            }
 
             if (user.photoURL) {
                 userPhoto.src = user.photoURL;
@@ -830,6 +873,9 @@ document.addEventListener('DOMContentLoaded', () => {
             userPhoto.removeAttribute('src');
             userName.textContent = '';
             userEmail.textContent = '';
+            if (userInfo) {
+                userInfo.style.display = 'none';
+            }
         }
     }
 

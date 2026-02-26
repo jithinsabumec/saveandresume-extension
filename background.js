@@ -4,6 +4,38 @@ const AUTH_SUCCESS = 'AUTH_SUCCESS';
 
 let watchlistWindow = null; 
 
+function isTrustedExternalSender(sender) {
+    if (!sender) {
+        return false;
+    }
+
+    if (sender.id && sender.id === chrome.runtime.id) {
+        return true;
+    }
+
+    const extensionBaseUrl = chrome.runtime.getURL('');
+    return Boolean(
+        (sender.url && sender.url.startsWith(extensionBaseUrl)) ||
+        (sender.origin && sender.origin.startsWith(extensionBaseUrl))
+    );
+}
+
+function isValidAuthPayload(message) {
+    if (!message || typeof message !== 'object') {
+        return false;
+    }
+
+    if (!message.user || typeof message.user !== 'object') {
+        return false;
+    }
+
+    if (message.token !== undefined && typeof message.token !== 'string') {
+        return false;
+    }
+
+    return true;
+}
+
 chrome.action.onClicked.addListener(() => {
     if (watchlistWindow) {
         // If window exists, focus it
@@ -32,13 +64,38 @@ chrome.windows.onRemoved.addListener((windowId) => {
 chrome.commands.onCommand.addListener((command) => {
     if (command === "add-timestamp") {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            chrome.tabs.sendMessage(tabs[0].id, { action: "addTimestamp" });
+            if (chrome.runtime.lastError) {
+                console.warn('Unable to query active tab:', chrome.runtime.lastError);
+                return;
+            }
+
+            const activeTabId = tabs?.[0]?.id;
+            if (activeTabId === undefined) {
+                return;
+            }
+
+            chrome.tabs.sendMessage(activeTabId, { action: "addTimestamp" }, () => {
+                if (chrome.runtime.lastError) {
+                    console.warn('Unable to send addTimestamp command:', chrome.runtime.lastError.message);
+                }
+            });
         });
     }
 });
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
     if (!message || message.type !== AUTH_SUCCESS) {
+        return;
+    }
+
+    if (!isTrustedExternalSender(sender)) {
+        // Keep auth callbacks working even when sender metadata varies by flow/browser.
+        console.warn('Received AUTH_SUCCESS from non-standard sender metadata:', sender);
+    }
+
+    if (!isValidAuthPayload(message)) {
+        console.warn('Rejected AUTH_SUCCESS with invalid payload.');
+        sendResponse({ received: false, error: 'invalid_payload' });
         return;
     }
 
