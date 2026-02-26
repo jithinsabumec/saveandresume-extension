@@ -194,7 +194,7 @@ function showSignInRequiredPopup() {
     popup.style.fontFamily = 'Manrope, sans-serif';
     popup.style.fontSize = '14px';
     popup.style.maxWidth = '260px';
-    popup.innerHTML = 'Sign in from the extension popup to save timestamps to Firebase.';
+    popup.innerHTML = 'Sign in from the extension popup to use Save and Resume.';
 
     document.body.appendChild(popup);
 

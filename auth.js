@@ -3,19 +3,60 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithCredential, signOut as firebaseSignOut } from "firebase/auth";
 
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-    apiKey: "AIzaSyAyCsypBFTFLTLf5wwky-v0jkMB_ebAsFo",
-    authDomain: "save-and-resume.firebaseapp.com",
-    projectId: "save-and-resume",
-    storageBucket: "save-and-resume.firebasestorage.app",
-    messagingSenderId: "169747525486",
-    appId: "1:169747525486:web:c13b6c68c8e1d6aa1d9b7f",
-    measurementId: "G-LR2Q1RK63T"
-};
+const REQUIRED_FIREBASE_FIELDS = [
+    'apiKey',
+    'authDomain',
+    'projectId',
+    'storageBucket',
+    'messagingSenderId',
+    'appId'
+];
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
+function readFirebaseRuntimeConfig() {
+    const firebaseConfig = globalThis.__SAVE_RESUME_CONFIG__?.firebase;
+    if (!firebaseConfig || typeof firebaseConfig !== 'object') {
+        throw new Error('Missing Firebase runtime config. Run npm run setup:config.');
+    }
+
+    const missingFields = REQUIRED_FIREBASE_FIELDS.filter((field) => {
+        const value = firebaseConfig[field];
+        return typeof value !== 'string' || value.trim() === '';
+    });
+
+    if (missingFields.length > 0) {
+        throw new Error(`Missing Firebase config field(s): ${missingFields.join(', ')}`);
+    }
+
+    return {
+        apiKey: firebaseConfig.apiKey,
+        authDomain: firebaseConfig.authDomain,
+        projectId: firebaseConfig.projectId,
+        storageBucket: firebaseConfig.storageBucket,
+        messagingSenderId: firebaseConfig.messagingSenderId,
+        appId: firebaseConfig.appId,
+        ...(typeof firebaseConfig.measurementId === 'string' && firebaseConfig.measurementId.trim() !== ''
+            ? { measurementId: firebaseConfig.measurementId }
+            : {})
+    };
+}
+
+let auth = null;
+let authInitError = null;
+
+try {
+    const app = initializeApp(readFirebaseRuntimeConfig());
+    auth = getAuth(app);
+} catch (error) {
+    authInitError = error instanceof Error ? error : new Error(String(error || 'Unknown Firebase init error'));
+    console.error('Failed to initialize Firebase Auth:', authInitError);
+}
+
+function requireAuthInstance() {
+    if (auth) {
+        return auth;
+    }
+    throw authInitError || new Error('Firebase Auth is not initialized.');
+}
 
 (function () {
     async function mapUser(user) {
@@ -120,10 +161,11 @@ const auth = getAuth(app);
     async function signInWithGoogle() {
         console.log('Starting signInWithGoogle...');
         try {
+            const authInstance = requireAuthInstance();
             const accessToken = await getGoogleAccessTokenWithWebAuthFlow();
             console.log('Got OAuth token via launchWebAuthFlow');
             const credential = GoogleAuthProvider.credential(null, accessToken);
-            const result = await signInWithCredential(auth, credential);
+            const result = await signInWithCredential(authInstance, credential);
             console.log('Sign in successful:', result.user.uid);
             return await mapUser(result.user);
         } catch (error) {
@@ -133,7 +175,8 @@ const auth = getAuth(app);
     }
 
     async function signOut() {
-        await firebaseSignOut(auth);
+        const authInstance = requireAuthInstance();
+        await firebaseSignOut(authInstance);
         // Optional: Revoke the token from chrome.identity if desired
         return new Promise((resolve) => {
             chrome.identity.getAuthToken({ interactive: false }, function (token) {
@@ -146,8 +189,9 @@ const auth = getAuth(app);
     }
 
     async function getCurrentUser() {
+        const authInstance = requireAuthInstance();
         return new Promise((resolve) => {
-            const unsubscribe = auth.onAuthStateChanged(async (user) => {
+            const unsubscribe = authInstance.onAuthStateChanged(async (user) => {
                 unsubscribe();
                 if (user) {
                     resolve(await mapUser(user));

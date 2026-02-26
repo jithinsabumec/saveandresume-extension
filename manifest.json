@@ -1,9 +1,8 @@
 {
     "update_url": "https://clients2.google.com/service/update2/crx",
-    "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAo3Z5i3iibqAXW7RYnQZjLkW/TDeIEkvV3EIQGkHcXo5YdbgerIhmzchXulyYMWPEC4g5dR5TScwnHDj6hT2HzF+cca2d1k7RlnqbgCn90DrxTWP4l9OgjnMAiUvaCgt1rKBrKGvF4Ac23EEYXPCHzYmApC6viorugr44csA+fvcs2ZkmObLIfN3Yg2QKaNlG4aq5lLXFl9fqxREh+DYJhIzgcR9740aZqFug9oquLesupsICmt8tlJDEkCgFGClNrwD2B2sAsG4GgwcSyFDn6HgYqpgmefduDCQ7nRTBC8RTJ2KCgFZZ3FIz2vB6uftVi9eyjGxJRsN0CpIzqjypyQIDAQAB",
     "manifest_version": 3,
     "name": "Save & Resume",
-    "version": "1.2.0",
+    "version": "1.2.2",
     "description": "Save and manage videos with timestamps.",
     "permissions": [
         "storage",

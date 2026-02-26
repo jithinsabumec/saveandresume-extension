@@ -1,12 +1,53 @@
 const AUTH_SUCCESS = 'AUTH_SUCCESS';
 
+try {
+    importScripts('firebase-config.js');
+} catch (error) {
+    console.error('Failed to load firebase-config.js. Run npm run setup:config.', error);
+}
+
 const AUTH_SESSION_KEY = 'authSession';
-const FIREBASE_API_KEY = 'AIzaSyAyCsypBFTFLTLf5wwky-v0jkMB_ebAsFo';
-const FIREBASE_PROJECT_ID = 'save-and-resume';
-const FIRESTORE_BASE_URL = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
 const STATE_DOC_PATH_SUFFIX = '/data/state';
 
 let watchlistWindow = null;
+let firebaseConfigCache = null;
+
+const REQUIRED_FIREBASE_FIELDS = [
+    'apiKey',
+    'projectId'
+];
+
+function readFirebaseRuntimeConfig() {
+    if (firebaseConfigCache) {
+        return firebaseConfigCache;
+    }
+
+    const firebaseConfig = globalThis.__SAVE_RESUME_CONFIG__?.firebase;
+    if (!firebaseConfig || typeof firebaseConfig !== 'object') {
+        throw new Error('Missing Firebase runtime config. Run npm run setup:config.');
+    }
+
+    const missingFields = REQUIRED_FIREBASE_FIELDS.filter((field) => {
+        const value = firebaseConfig[field];
+        return typeof value !== 'string' || value.trim() === '';
+    });
+
+    if (missingFields.length > 0) {
+        throw new Error(`Missing Firebase config field(s): ${missingFields.join(', ')}`);
+    }
+
+    firebaseConfigCache = {
+        apiKey: firebaseConfig.apiKey,
+        projectId: firebaseConfig.projectId
+    };
+
+    return firebaseConfigCache;
+}
+
+function getFirestoreBaseUrl() {
+    const { projectId } = readFirebaseRuntimeConfig();
+    return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
+}
 
 function isTrustedExternalSender(sender) {
     if (!sender) {
@@ -157,7 +198,7 @@ function parseStateDocument(documentPayload) {
 }
 
 function buildStateDocUrl(uid) {
-    return `${FIRESTORE_BASE_URL}/users/${encodeURIComponent(uid)}${STATE_DOC_PATH_SUFFIX}`;
+    return `${getFirestoreBaseUrl()}/users/${encodeURIComponent(uid)}${STATE_DOC_PATH_SUFFIX}`;
 }
 
 function getStorageLocal(keys) {
@@ -234,7 +275,8 @@ async function refreshAuthSession(session) {
         throw new Error('Missing refresh token');
     }
 
-    const response = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(FIREBASE_API_KEY)}`, {
+    const { apiKey } = readFirebaseRuntimeConfig();
+    const response = await fetch(`https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(apiKey)}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded'
