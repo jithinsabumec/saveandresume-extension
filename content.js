@@ -61,7 +61,7 @@ function runtimeRequest(message) {
 
 function getCloudCategories(callback) {
     runtimeRequest({ type: 'DATA_GET', keys: ['categories'] })
-        .then((response) => callback(response.data?.categories || { Default: [] }, null))
+        .then((response) => callback(response.data?.categories || {}, null))
         .catch((error) => callback(null, error));
 }
 
@@ -602,6 +602,14 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     const selectedTickIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 6"><path fill="#1FA700" d="M3.359 6L0 2.64l.947-.947 2.412 2.407L9.053 0 10 .947 3.359 6Z"/></svg>';
     let selectedCategoryValue = 'Default';
     let availableCategories = ['Default'];
+    const buildAvailableCategories = (categoriesObj) => {
+        const savedCategoryNames = Object.keys(categoriesObj || {})
+            .filter((cat) => cat !== 'Default')
+            .sort();
+
+        // Keep Default available so saving to it can recreate it when needed.
+        return ['Default', ...savedCategoryNames];
+    };
 
     const closeCategoryDropdown = () => {
         categoryDropdownMenu.style.display = 'none';
@@ -734,10 +742,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
             return;
         }
 
-        availableCategories = ['Default', ...Object.keys(categories)
-            .filter(cat => cat !== 'Default')
-            .sort()
-        ];
+        availableCategories = buildAvailableCategories(categories);
         renderCategoryOptions();
     });
 

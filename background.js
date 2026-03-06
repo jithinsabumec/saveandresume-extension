@@ -135,10 +135,6 @@ function normalizeCategories(input) {
         });
     }
 
-    if (!categories.Default) {
-        categories.Default = [];
-    }
-
     return categories;
 }
 
@@ -179,7 +175,7 @@ function countVideos(categories) {
 
 function parseStateDocument(documentPayload) {
     const fields = documentPayload?.fields || {};
-    let categories = { Default: [] };
+    let categories = {};
 
     if (fields.categoriesJson?.stringValue) {
         try {
@@ -270,6 +266,168 @@ function validateAuthSession(session) {
     return true;
 }
 
+function randomString(length = 64) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    const array = new Uint8Array(length);
+    crypto.getRandomValues(array);
+    let value = '';
+    for (let i = 0; i < array.length; i += 1) {
+        value += chars[array[i] % chars.length];
+    }
+    return value;
+}
+
+function launchWebAuthFlow(url, interactive = true) {
+    return new Promise((resolve, reject) => {
+        chrome.identity.launchWebAuthFlow({ url, interactive }, (callbackUrl) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+
+            resolve(callbackUrl || null);
+        });
+    });
+}
+
+function parseOAuthCallback(callbackUrl, expectedState) {
+    const callback = new URL(callbackUrl);
+    const hashParams = new URLSearchParams(callback.hash.startsWith('#') ? callback.hash.slice(1) : callback.hash);
+    const queryParams = callback.searchParams;
+    const callbackError = hashParams.get('error') || queryParams.get('error');
+
+    if (callbackError) {
+        const description = hashParams.get('error_description') || queryParams.get('error_description');
+        throw new Error(description ? `${callbackError}: ${description}` : callbackError);
+    }
+
+    const callbackState = hashParams.get('state') || queryParams.get('state');
+    if (callbackState !== expectedState) {
+        throw new Error('Google OAuth state mismatch.');
+    }
+
+    const accessToken = hashParams.get('access_token') || queryParams.get('access_token');
+    if (!accessToken) {
+        throw new Error('Google OAuth did not return access_token.');
+    }
+
+    return accessToken;
+}
+
+async function getGoogleAccessTokenWithWebAuthFlow() {
+    const oauthConfig = chrome.runtime.getManifest()?.oauth2 || {};
+    const clientId = oauthConfig.client_id;
+    if (typeof clientId !== 'string' || clientId.trim() === '') {
+        throw new Error('Missing oauth2.client_id in manifest.json');
+    }
+
+    const redirectUri = chrome.identity.getRedirectURL('oauth2');
+    const state = randomString(32);
+    const scopes = Array.from(new Set([
+        ...(Array.isArray(oauthConfig.scopes) ? oauthConfig.scopes : []),
+        'openid',
+        'email',
+        'profile'
+    ]));
+
+    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    authUrl.searchParams.set('client_id', clientId);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_type', 'token');
+    authUrl.searchParams.set('scope', scopes.join(' '));
+    authUrl.searchParams.set('state', state);
+    authUrl.searchParams.set('prompt', 'select_account');
+    authUrl.searchParams.set('include_granted_scopes', 'true');
+
+    let callbackUrl = null;
+    try {
+        callbackUrl = await launchWebAuthFlow(authUrl.toString(), true);
+    } catch (error) {
+        const message = error?.message || 'Unknown launchWebAuthFlow error';
+        if (message.includes('Authorization page could not be loaded')) {
+            throw new Error(
+                `Authorization page could not be loaded. ` +
+                `For launchWebAuthFlow, use a Google OAuth Web client ID and add this exact redirect URI in Google Cloud: ${redirectUri}. ` +
+                `Current client_id: ${clientId}`
+            );
+        }
+        throw error;
+    }
+
+    if (!callbackUrl) {
+        throw new Error('Google OAuth flow was cancelled.');
+    }
+
+    const accessToken = parseOAuthCallback(callbackUrl, state);
+    return { accessToken, redirectUri };
+}
+
+async function signInWithGoogleAccessToken(accessToken, requestUri) {
+    const { apiKey } = readFirebaseRuntimeConfig();
+    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            postBody: `access_token=${encodeURIComponent(accessToken)}&providerId=google.com`,
+            requestUri,
+            returnSecureToken: true,
+            returnIdpCredential: true
+        })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        const message = payload?.error?.message || `Firebase sign-in failed (${response.status})`;
+        throw new Error(message);
+    }
+
+    const expiresInSeconds = Number(payload.expiresIn || 3600);
+    const safeExpiresInSeconds = Number.isFinite(expiresInSeconds) && expiresInSeconds > 0 ? expiresInSeconds : 3600;
+    const uid = typeof payload.localId === 'string' ? payload.localId : '';
+    const idToken = typeof payload.idToken === 'string' ? payload.idToken : '';
+    const refreshToken = typeof payload.refreshToken === 'string' ? payload.refreshToken : '';
+
+    if (!uid || !idToken || !refreshToken) {
+        throw new Error('Firebase sign-in response missing required fields.');
+    }
+
+    return {
+        uid,
+        displayName: typeof payload.displayName === 'string' ? payload.displayName : '',
+        email: typeof payload.email === 'string' ? payload.email : '',
+        photoURL: typeof payload.photoUrl === 'string' ? payload.photoUrl : '',
+        idToken,
+        refreshToken,
+        expiresAt: Date.now() + (safeExpiresInSeconds * 1000)
+    };
+}
+
+async function signInAndPersistAuthSession() {
+    const { accessToken, redirectUri } = await getGoogleAccessTokenWithWebAuthFlow();
+    const session = await signInWithGoogleAccessToken(accessToken, redirectUri);
+    await saveAuthSession(session);
+    return session;
+}
+
+async function clearCachedIdentityTokens() {
+    if (typeof chrome.identity.clearAllCachedAuthTokens !== 'function') {
+        return;
+    }
+
+    await new Promise((resolve, reject) => {
+        chrome.identity.clearAllCachedAuthTokens(() => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+            resolve();
+        });
+    });
+}
+
 async function refreshAuthSession(session) {
     if (typeof session.refreshToken !== 'string' || session.refreshToken.trim() === '') {
         throw new Error('Missing refresh token');
@@ -334,7 +492,7 @@ async function firestoreFetchState(uid, idToken) {
 
     if (response.status === 404) {
         return {
-            categories: { Default: [] },
+            categories: {},
             migrationComplete: false
         };
     }
@@ -545,6 +703,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
 
             await saveAuthSession(session);
+            sendOk(sendResponse);
+            return;
+        }
+
+        if (message.type === 'AUTH_SIGN_IN') {
+            const session = await signInAndPersistAuthSession();
+            sendOk(sendResponse, {
+                user: {
+                    uid: session.uid,
+                    displayName: session.displayName || '',
+                    email: session.email || '',
+                    photoURL: session.photoURL || ''
+                }
+            });
+            return;
+        }
+
+        if (message.type === 'AUTH_SIGN_OUT') {
+            await clearAuthSession();
+            try {
+                await clearCachedIdentityTokens();
+            } catch (error) {
+                console.warn('Failed to clear cached identity tokens:', error);
+            }
             sendOk(sendResponse);
             return;
         }

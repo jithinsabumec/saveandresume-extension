@@ -40,19 +40,13 @@ const cloudStorage = {
     }
 };
 
-async function syncAuthSessionToBackground(user) {
-    if (!user?.authSession) {
-        throw new Error('Missing auth session');
-    }
-
-    await runtimeRequest({
-        type: 'AUTH_SYNC',
-        session: user.authSession
-    });
+async function signInWithGoogleInBackground() {
+    const response = await runtimeRequest({ type: 'AUTH_SIGN_IN' });
+    return response.user || null;
 }
 
-async function clearAuthSessionInBackground() {
-    await runtimeRequest({ type: 'AUTH_CLEAR' });
+async function signOutInBackground() {
+    await runtimeRequest({ type: 'AUTH_SIGN_OUT' });
 }
 
 async function getLocalSummary() {
@@ -122,7 +116,7 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
     event.stopPropagation();
 
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
 
         if (categories[category]) {
             const indexToRemove = categories[category].findIndex(video =>
@@ -133,8 +127,8 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
                 // Remove the video from the category
                 categories[category].splice(indexToRemove, 1);
 
-                // If the category is empty and not Default, ask if user wants to delete it
-                if (category !== 'Default' && categories[category].length === 0) {
+                // Ask if user wants to delete a category after removing its last timestamp
+                if (categories[category].length === 0) {
                     if (confirm(`The category "${category}" is now empty. Do you want to delete it?`)) {
                         delete categories[category];
                     }
@@ -160,7 +154,7 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
                                     categorySection.remove();
 
                                     // Check if we should update the categories list UI
-                                    if (category !== 'Default' && !categories[category]) {
+                                    if (!categories[category]) {
                                         const categoryItem = document.querySelector(`.category-item[data-category="${safeCategorySelector}"]`);
                                         if (categoryItem) {
                                             categoryItem.remove();
@@ -184,7 +178,7 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
 // Helper function to update category counts in the UI
 function updateCategoryCounts() {
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
 
         // Update each category count pill
         Object.keys(categories).forEach(category => {
@@ -279,7 +273,7 @@ function renderWatchlist(onComplete) {
             return; // renderWatchlist will be called again after migration
         }
 
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
         const watchlistElement = document.getElementById('watchlist');
         watchlistElement.innerHTML = ''; // Clear existing items
 
@@ -302,9 +296,6 @@ function renderWatchlist(onComplete) {
 
         // Render each category and its videos
         Object.keys(categories).sort((a, b) => {
-            // Always keep Default category at the top
-            if (a === 'Default') return -1;
-            if (b === 'Default') return 1;
             return a.localeCompare(b);
         }).forEach(category => {
             const videos = categories[category];
@@ -402,14 +393,14 @@ function renderCategoryList(onComplete) {
     };
 
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
         const categoryListElement = document.getElementById('categoryList');
         categoryListElement.innerHTML = ''; // Clear existing items
         const totalVideos = Object.values(categories).reduce((sum, videos) => sum + videos.length, 0);
 
         // Add "All" category which will show everything
         const allCategory = document.createElement('li');
-        allCategory.className = 'category-item active';
+        allCategory.className = 'category-item all-category active';
 
         // Create category name text
         const allCategoryText = document.createElement('span');
@@ -425,13 +416,18 @@ function renderCategoryList(onComplete) {
         allCategory.appendChild(allCountPill);
 
         allCategory.setAttribute('data-category', 'all');
-        allCategory.onclick = () => filterByCategory('all');
+        allCategory.onclick = () => {
+            if (isEditMode) {
+                return;
+            }
+            filterByCategory('all');
+        };
         categoryListElement.appendChild(allCategory);
 
         // Add all user categories
         Object.keys(categories).sort().forEach(category => {
             const categoryItem = document.createElement('li');
-            categoryItem.className = 'category-item';
+            categoryItem.className = 'category-item can-delete';
 
             // Create a container for category text
             // Create category name text
@@ -446,20 +442,27 @@ function renderCategoryList(onComplete) {
             countPill.textContent = categories[category].length;
             categoryItem.appendChild(countPill);
 
-            // Add delete button (hidden by default, shown in edit mode)
-            if (category !== 'Default') {
-                const deleteBtn = document.createElement('span');
-                deleteBtn.className = 'delete-category-btn';
-                deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z"></path></svg>`;
-                deleteBtn.onclick = (e) => {
-                    e.stopPropagation();
+            const deleteBtn = document.createElement('span');
+            deleteBtn.className = 'delete-category-btn';
+            deleteBtn.title = `Delete "${category}"`;
+            deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z"></path></svg>`;
+            deleteBtn.onclick = (event) => {
+                event.stopPropagation();
+                if (isEditMode) {
                     deleteCategory(category);
-                };
-                categoryItem.appendChild(deleteBtn);
-            }
+                }
+            };
+            categoryItem.appendChild(deleteBtn);
 
             categoryItem.setAttribute('data-category', category);
-            categoryItem.onclick = () => filterByCategory(category);
+            categoryItem.onclick = () => {
+                if (isEditMode) {
+                    deleteCategory(category);
+                    return;
+                }
+
+                filterByCategory(category);
+            };
             categoryListElement.appendChild(categoryItem);
         });
         done();
@@ -468,29 +471,53 @@ function renderCategoryList(onComplete) {
 
 // Add function to delete category
 function deleteCategory(categoryName) {
-    if (confirm(`Are you sure you want to delete the category "${categoryName}" and all its timestamps?`)) {
-        cloudStorage.get(['categories'], function (result) {
-            const categories = result.categories || {};
-
-            // Cannot delete Default category
-            if (categoryName === 'Default') return;
-
-            // Delete the category
-            delete categories[categoryName];
-
-            // Save updated categories
-            cloudStorage.set({ categories: categories }, function () {
-                renderCategoryList();
-                renderWatchlist();
-
-                // If we were viewing the deleted category, switch to All
-                const activeCategoryItem = document.querySelector('.category-item.active');
-                if (activeCategoryItem && activeCategoryItem.getAttribute('data-category') === categoryName) {
-                    filterByCategory('all');
-                }
-            });
-        });
+    if (!confirm(`Are you sure you want to delete the category "${categoryName}" and all its timestamps?`)) {
+        return;
     }
+
+    const activeCategoryItem = document.querySelector('.category-item.active');
+    const activeCategory = activeCategoryItem?.getAttribute('data-category') || 'all';
+    const nextSelectedCategory = activeCategory === categoryName ? 'all' : activeCategory;
+
+    runtimeRequest({ type: 'DATA_GET', keys: ['categories'] })
+        .then((response) => {
+            const categories = response.data?.categories || {};
+
+            if (!Object.prototype.hasOwnProperty.call(categories, categoryName)) {
+                renderCategoryList(() => {
+                    filterByCategory(nextSelectedCategory);
+                });
+                return null;
+            }
+
+            const updatedCategories = { ...categories };
+            delete updatedCategories[categoryName];
+
+            return runtimeRequest({
+                type: 'DATA_SET',
+                data: { categories: updatedCategories }
+            });
+        })
+        .then((result) => {
+            if (result === null) {
+                return;
+            }
+
+            renderCategoryList(() => {
+                filterByCategory(nextSelectedCategory);
+            });
+        })
+        .catch((error) => {
+            console.error('Failed to delete category:', error);
+            const details = error?.message || 'Unknown error';
+
+            if (details === 'AUTH_REQUIRED') {
+                alert('Your sign-in session expired. Please sign in again, then try deleting the category.');
+                return;
+            }
+
+            alert(`Could not delete category. ${details}`);
+        });
 }
 
 function filterByCategory(selectedCategory) {
@@ -547,9 +574,6 @@ function filterByCategory(selectedCategory) {
 
         // Render each category and its videos
         Object.keys(categories).sort((a, b) => {
-            // Always keep Default category at the top
-            if (a === 'Default') return -1;
-            if (b === 'Default') return 1;
             return a.localeCompare(b);
         }).forEach(category => {
             if (selectedCategory !== 'all' && category !== selectedCategory) {
@@ -687,7 +711,7 @@ function addNewCategory() {
     }
 
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
 
         // Check if category already exists
         if (categories[categoryName]) {
@@ -712,6 +736,7 @@ function toggleEditMode() {
 
     // Get UI elements
     const categoryList = document.getElementById('categoryList');
+    const deleteModeHint = document.getElementById('deleteModeHint');
     const editBtn = document.getElementById('editCategoriesBtn');
     const addBtn = document.getElementById('addCategoryBtn');
     const saveBtn = document.getElementById('saveCategoriesBtn');
@@ -719,12 +744,14 @@ function toggleEditMode() {
     if (isEditMode) {
         // Enter edit mode
         categoryList.classList.add('edit-mode');
+        if (deleteModeHint) deleteModeHint.style.display = 'block';
         editBtn.style.display = 'none';
         addBtn.style.display = 'none';
         saveBtn.style.display = 'flex';
     } else {
         // Exit edit mode
         categoryList.classList.remove('edit-mode');
+        if (deleteModeHint) deleteModeHint.style.display = 'none';
         editBtn.style.display = 'flex';
         addBtn.style.display = 'flex';
         saveBtn.style.display = 'none';
@@ -747,13 +774,11 @@ function toggleDropdown(dropdown) {
 // Populate category options in dropdown
 function populateCategoryOptions(container, video) {
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
         const selectedIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 6"><path fill="#1FA700" d="M3.359 6L0 2.64l.947-.947 2.412 2.407L9.053 0 10 .947 3.359 6Z"/></svg>';
         container.innerHTML = '';
 
         const sortedCategories = Object.keys(categories).sort((a, b) => {
-            if (a === 'Default') return -1;
-            if (b === 'Default') return 1;
             return a.localeCompare(b);
         });
 
@@ -807,7 +832,7 @@ function populateCategoryOptions(container, video) {
 // Keep each timestamp in exactly one category.
 function assignVideoToSingleCategory(video, targetCategory) {
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
 
         if (!categories[targetCategory]) {
             categories[targetCategory] = [];
@@ -830,7 +855,7 @@ function assignVideoToSingleCategory(video, targetCategory) {
 // Add video to category
 function addVideoToCategory(video, category) {
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
 
         if (!categories[category]) {
             categories[category] = [];
@@ -853,7 +878,7 @@ function addVideoToCategory(video, category) {
 // Remove video from category
 function removeVideoFromCategory(video, category) {
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
 
         if (categories[category]) {
             categories[category] = categories[category].filter(v =>
@@ -932,7 +957,7 @@ function showUndoNotification(video) {
 
 function restoreVideo(video) {
     cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || { Default: [] };
+        const categories = result.categories || {};
 
         // Add video back to Default category
         if (!categories.Default) {
@@ -1127,15 +1152,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     setDataLoadingState(true);
 
     signInBtn.addEventListener('click', async () => {
-        if (!window.auth) {
-            handleAuthError('Authentication module not loaded', new Error('window.auth missing'));
-            return;
-        }
-
         try {
             setButtonsDisabled(true);
-            const user = await window.auth.signInWithGoogle();
-            await syncAuthSessionToBackground(user);
+            const user = await signInWithGoogleInBackground();
+            if (!user) {
+                throw new Error('Sign-in did not return user details.');
+            }
             updateAuthUI(user);
             try {
                 await runMigrationFlow();
@@ -1153,15 +1175,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     signOutBtn.addEventListener('click', async () => {
-        if (!window.auth) {
-            handleAuthError('Authentication module not loaded', new Error('window.auth missing'));
-            return;
-        }
-
         try {
             setButtonsDisabled(true);
-            await window.auth.signOut();
-            await clearAuthSessionInBackground();
+            await signOutInBackground();
             updateAuthUI(null);
             await loadCloudDataIntoUI();
             await refreshSignedOutHint();
@@ -1172,44 +1188,31 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    if (window.auth?.getCurrentUser) {
-        try {
-            const user = await window.auth.getCurrentUser();
-            if (user) {
-                await syncAuthSessionToBackground(user);
-                updateAuthUI(user);
-                try {
-                    await runMigrationFlow();
-                } catch (migrationError) {
-                    console.error('Migration flow failed:', migrationError);
-                }
-                await loadCloudDataIntoUI();
-            } else {
-                await clearAuthSessionInBackground();
-                updateAuthUI(null);
-                await loadCloudDataIntoUI();
-            }
-        } catch (error) {
-            console.error('Failed to load current user', error);
+    try {
+        const authStatus = await runtimeRequest({ type: 'AUTH_STATUS' });
+        const user = authStatus.authenticated ? authStatus.user : null;
+        updateAuthUI(user);
+
+        if (user) {
             try {
-                await clearAuthSessionInBackground();
-            } catch (clearError) {
-                console.warn('Failed clearing background auth session:', clearError);
+                await runMigrationFlow();
+            } catch (migrationError) {
+                console.error('Migration flow failed:', migrationError);
             }
-            updateAuthUI(null);
-            await loadCloudDataIntoUI();
-        } finally {
-            hideMigrationOverlay();
-            await refreshSignedOutHint();
         }
-    } else {
+
+        await loadCloudDataIntoUI();
+    } catch (error) {
+        console.error('Failed to load auth status', error);
         try {
-            await clearAuthSessionInBackground();
-        } catch (error) {
-            console.warn('Failed clearing background auth session:', error);
+            await signOutInBackground();
+        } catch (signOutError) {
+            console.warn('Failed clearing background auth session:', signOutError);
         }
         updateAuthUI(null);
         await loadCloudDataIntoUI();
+    } finally {
+        hideMigrationOverlay();
         await refreshSignedOutHint();
     }
 

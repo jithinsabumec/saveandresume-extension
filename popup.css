@@ -356,46 +356,70 @@ main {
     color: #ffffff;
 }
 
+.delete-mode-hint {
+    display: none;
+    margin: 6px 0 10px;
+    padding: 6px 10px;
+    border-radius: 10px;
+    border: 1px solid #5E1B2B;
+    background: rgba(237, 26, 67, 0.14);
+    color: #F4C6D3;
+    font-size: 11px;
+    line-height: 1.3;
+}
+
 .edit-mode .category-item {
     padding-right: 6px;
-    /* Reduced right padding */
 }
 
-/* Keep All and Default buttons size consistent */
-.edit-mode .category-item[data-category="all"],
-.edit-mode .category-item[data-category="Default"] {
+.edit-mode .category-item.can-delete {
+    border-color: #A02543;
+    background: #2A151D;
+    color: #FFD8E1;
+    cursor: pointer;
+}
+
+.edit-mode .category-item.can-delete:hover {
+    border-color: #E51A48;
+    background: #341A23;
+}
+
+.edit-mode .category-item.can-delete .category-count {
+    background: #4A1F2C;
+    color: #FFD8E1;
+}
+
+.edit-mode .category-item[data-category="all"] {
     padding-right: 12px;
-    /* Keep original padding for All and Default buttons */
+    background: #191919;
+    border-color: #343434;
+    color: #7A7A7A;
+    cursor: not-allowed;
+    opacity: 0.75;
+    pointer-events: none;
 }
 
+.edit-mode .category-item[data-category="all"] .category-count {
+    background: #2A2A2A;
+    color: #8A8A8A;
+}
 
-
-/* Style for the delete button on category items */
 .delete-category-btn {
     display: none;
-    /* Hidden by default */
     width: 18px;
-    /* Width for touch target */
     height: 18px;
-    color: #AAAAAA;
+    color: #CBB6BD;
     cursor: pointer;
     transition: all 0.2s ease;
     line-height: 0;
     flex-shrink: 0;
-    border-radius: 2;
-    /* Remove border radius for square appearance */
-    position: relative;
-    /* For hover effect */
+    border-radius: 50%;
     margin-left: 2px;
-    /* Remove margin */
     padding: 0;
-    /* Remove padding */
 }
 
-/* Edit mode class to show delete buttons */
-.edit-mode .delete-category-btn {
+.edit-mode .category-item.can-delete .delete-category-btn {
     display: flex;
-    /* Show in edit mode */
     align-items: center;
     justify-content: center;
 }
@@ -404,16 +428,11 @@ main {
     display: block;
     width: 12px;
     height: 12px;
-    position: relative;
-    /* Ensure it stays above the hover effect */
-    z-index: 2;
 }
 
 .delete-category-btn:hover {
     color: #ffffff;
-    background-color: #454545;
-    /* Red background on hover */
-    border-radius: 30px;
+    background-color: #8B1F3B;
 }
 
 /* Modal styling */
