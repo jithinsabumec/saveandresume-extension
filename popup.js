@@ -1,4 +1,5 @@
 let isEditMode = false;
+const dataClient = globalThis.SaveResumeDataLayer.createClientDataLayer();
 
 function runtimeRequest(message) {
     return new Promise((resolve, reject) => {
@@ -20,22 +21,20 @@ function runtimeRequest(message) {
 
 const cloudStorage = {
     get(keys, callback) {
-        runtimeRequest({ type: 'DATA_GET', keys })
-            .then((response) => callback(response.data || {}))
+        dataClient.get(keys)
+            .then((data) => callback(data || {}))
             .catch((error) => {
-                if (error.message !== 'AUTH_REQUIRED') {
-                    console.error('Failed to fetch cloud data:', error);
-                }
+                console.error('Failed to fetch timestamp data:', error);
                 callback({});
             });
     },
     set(data, callback) {
-        runtimeRequest({ type: 'DATA_SET', data })
+        dataClient.set(data)
             .then(() => {
                 if (typeof callback === 'function') callback();
             })
             .catch((error) => {
-                console.error('Failed to save cloud data:', error);
+                console.error('Failed to save timestamp data:', error);
             });
     }
 };
@@ -50,15 +49,11 @@ async function signOutInBackground() {
 }
 
 async function getLocalSummary() {
-    const response = await runtimeRequest({ type: 'DATA_LOCAL_SUMMARY' });
-    return {
-        hasLocalData: Boolean(response.hasLocalData),
-        localVideoCount: Number(response.localVideoCount || 0)
-    };
+    return dataClient.getLocalSummary();
 }
 
 async function migrateLocalDataToCloud() {
-    return runtimeRequest({ type: 'DATA_MIGRATE_LOCAL' });
+    return dataClient.migrateLocalDataToCloud();
 }
 
 function wait(ms) {
@@ -479,9 +474,9 @@ function deleteCategory(categoryName) {
     const activeCategory = activeCategoryItem?.getAttribute('data-category') || 'all';
     const nextSelectedCategory = activeCategory === categoryName ? 'all' : activeCategory;
 
-    runtimeRequest({ type: 'DATA_GET', keys: ['categories'] })
-        .then((response) => {
-            const categories = response.data?.categories || {};
+    dataClient.get(['categories'])
+        .then((data) => {
+            const categories = data.categories || {};
 
             if (!Object.prototype.hasOwnProperty.call(categories, categoryName)) {
                 renderCategoryList(() => {
@@ -493,10 +488,7 @@ function deleteCategory(categoryName) {
             const updatedCategories = { ...categories };
             delete updatedCategories[categoryName];
 
-            return runtimeRequest({
-                type: 'DATA_SET',
-                data: { categories: updatedCategories }
-            });
+            return dataClient.set({ categories: updatedCategories });
         })
         .then((result) => {
             if (result === null) {
@@ -510,12 +502,6 @@ function deleteCategory(categoryName) {
         .catch((error) => {
             console.error('Failed to delete category:', error);
             const details = error?.message || 'Unknown error';
-
-            if (details === 'AUTH_REQUIRED') {
-                alert('Your sign-in session expired. Please sign in again, then try deleting the category.');
-                return;
-            }
-
             alert(`Could not delete category. ${details}`);
         });
 }
@@ -1001,42 +987,85 @@ document.addEventListener('DOMContentLoaded', async () => {
     const cancelCategoryBtn = document.getElementById('cancelCategoryBtn');
     const closeModalBtn = document.querySelector('.close-modal');
     const categoryNameInput = document.getElementById('categoryNameInput');
+    const mainContent = document.querySelector('.main-content');
     const categoriesContainer = document.querySelector('.categories-container');
     const dataLoadingState = document.getElementById('data-loading-state');
     const dataLoadingText = dataLoadingState?.querySelector('.data-loading-text');
-    const migrationHint = document.createElement('div');
-    migrationHint.style.fontSize = '11px';
-    migrationHint.style.color = '#a0a0a0';
-    migrationHint.style.lineHeight = '1.4';
-    migrationHint.style.marginTop = '8px';
-    migrationHint.style.maxWidth = '220px';
-    migrationHint.style.textAlign = 'left';
-    migrationHint.style.display = 'none';
-    signedOutState.appendChild(migrationHint);
 
-    const migrationOverlay = document.createElement('div');
-    migrationOverlay.style.position = 'fixed';
-    migrationOverlay.style.inset = '0';
-    migrationOverlay.style.background = 'rgba(0, 0, 0, 0.55)';
-    migrationOverlay.style.display = 'none';
-    migrationOverlay.style.alignItems = 'center';
-    migrationOverlay.style.justifyContent = 'center';
-    migrationOverlay.style.zIndex = '99999';
-    migrationOverlay.innerHTML = `
-        <div style="background:#191919;border:1px solid #383838;border-radius:8px;padding:16px;max-width:280px;text-align:center;color:#fff;font-family:Manrope,sans-serif;">
-            <div id="migration-overlay-text" style="font-size:14px;line-height:1.4;">Migrating your timestamps...</div>
-        </div>
-    `;
-    document.body.appendChild(migrationOverlay);
-    const migrationOverlayText = migrationOverlay.querySelector('#migration-overlay-text');
+    const breakingNoticeBanner = document.createElement('div');
+    breakingNoticeBanner.style.display = 'none';
+    breakingNoticeBanner.style.background = '#33240f';
+    breakingNoticeBanner.style.border = '1px solid #6e4f22';
+    breakingNoticeBanner.style.color = '#f6d9a6';
+    breakingNoticeBanner.style.borderRadius = '8px';
+    breakingNoticeBanner.style.fontSize = '12px';
+    breakingNoticeBanner.style.lineHeight = '1.4';
+    breakingNoticeBanner.style.padding = '10px 12px';
+    breakingNoticeBanner.style.marginBottom = '12px';
+    breakingNoticeBanner.style.display = 'none';
+    breakingNoticeBanner.style.gap = '8px';
+    breakingNoticeBanner.style.alignItems = 'center';
+    breakingNoticeBanner.style.justifyContent = 'space-between';
+
+    const breakingNoticeText = document.createElement('span');
+    const dismissNoticeBtn = document.createElement('button');
+    dismissNoticeBtn.textContent = 'Dismiss';
+    dismissNoticeBtn.style.background = '#6e4f22';
+    dismissNoticeBtn.style.border = 'none';
+    dismissNoticeBtn.style.borderRadius = '999px';
+    dismissNoticeBtn.style.color = '#fff';
+    dismissNoticeBtn.style.fontSize = '11px';
+    dismissNoticeBtn.style.padding = '4px 10px';
+    dismissNoticeBtn.style.cursor = 'pointer';
+    dismissNoticeBtn.addEventListener('click', async () => {
+        breakingNoticeBanner.style.display = 'none';
+        try {
+            await dataClient.dismissBreakingUpdateNotice();
+        } catch (error) {
+            console.warn('Failed to dismiss breaking update notice:', error);
+        }
+    });
+
+    breakingNoticeBanner.appendChild(breakingNoticeText);
+    breakingNoticeBanner.appendChild(dismissNoticeBtn);
+    if (mainContent) {
+        mainContent.insertBefore(breakingNoticeBanner, mainContent.firstChild);
+    }
+
+    const statusMessage = document.createElement('div');
+    statusMessage.style.fontSize = '12px';
+    statusMessage.style.lineHeight = '1.4';
+    statusMessage.style.borderRadius = '6px';
+    statusMessage.style.padding = '8px 10px';
+    statusMessage.style.marginBottom = '10px';
+    statusMessage.style.display = 'none';
+    if (mainContent) {
+        mainContent.insertBefore(statusMessage, breakingNoticeBanner.nextSibling);
+    }
+
+    const migrationHint = document.createElement('div');
+    migrationHint.className = 'local-sync-banner';
+    migrationHint.style.display = 'none';
+
+    const migrationHintText = document.createElement('span');
+    migrationHintText.className = 'local-sync-banner-text';
+
+    const migrationHintDismissBtn = document.createElement('button');
+    migrationHintDismissBtn.type = 'button';
+    migrationHintDismissBtn.className = 'local-sync-banner-dismiss';
+    migrationHintDismissBtn.setAttribute('aria-label', 'Dismiss local sync banner');
+    migrationHintDismissBtn.textContent = '×';
+
+    migrationHint.appendChild(migrationHintText);
+    migrationHint.appendChild(migrationHintDismissBtn);
+    if (mainContent) {
+        mainContent.insertBefore(migrationHint, statusMessage.nextSibling);
+    }
+
+    let isAuthenticated = false;
 
     function updateAuthUI(user) {
-        const dataActionsEnabled = Boolean(user);
-        [addCategoryBtn, editCategoriesBtn, saveCategoriesBtn, saveCategoryBtn].forEach((button) => {
-            button.disabled = !dataActionsEnabled;
-            button.style.opacity = dataActionsEnabled ? '1' : '0.6';
-            button.style.cursor = dataActionsEnabled ? '' : 'not-allowed';
-        });
+        isAuthenticated = Boolean(user);
 
         if (user) {
             signedOutState.style.display = 'none';
@@ -1067,29 +1096,116 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function showMigrationOverlay(message) {
-        migrationOverlayText.textContent = message;
-        migrationOverlay.style.display = 'flex';
+    function showStatusMessage(message, tone = 'info') {
+        statusMessage.textContent = message;
+        statusMessage.style.display = 'block';
+        if (tone === 'error') {
+            statusMessage.style.background = '#3a1a21';
+            statusMessage.style.border = '1px solid #7d2e41';
+            statusMessage.style.color = '#ffc9d5';
+            return;
+        }
+
+        if (tone === 'success') {
+            statusMessage.style.background = '#183224';
+            statusMessage.style.border = '1px solid #2b6a49';
+            statusMessage.style.color = '#b8f7cf';
+            return;
+        }
+
+        statusMessage.style.background = '#1d2a3a';
+        statusMessage.style.border = '1px solid #385a7b';
+        statusMessage.style.color = '#d5e8ff';
     }
 
-    function hideMigrationOverlay() {
-        migrationOverlay.style.display = 'none';
+    function hideStatusMessage() {
+        statusMessage.style.display = 'none';
+        statusMessage.textContent = '';
+    }
+
+    function getBannerDismissed() {
+        // Dev test reset: run `chrome.storage.local.remove('bannerDismissed')` in popup DevTools console.
+        return new Promise((resolve, reject) => {
+            chrome.storage.local.get(['bannerDismissed'], (result) => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                resolve(result.bannerDismissed === true);
+            });
+        });
+    }
+
+    function setBannerDismissed(value) {
+        return new Promise((resolve, reject) => {
+            chrome.storage.local.set({ bannerDismissed: Boolean(value) }, () => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                    return;
+                }
+                resolve();
+            });
+        });
+    }
+
+    function hideMigrationHintImmediately() {
+        migrationHint.classList.remove('is-hiding');
+        migrationHint.style.display = 'none';
+        migrationHintText.textContent = '';
+    }
+
+    async function dismissMigrationHintWithFade() {
+        try {
+            await setBannerDismissed(true);
+        } catch (error) {
+            console.warn('Failed to save bannerDismissed flag:', error);
+        }
+
+        migrationHint.classList.add('is-hiding');
+        window.setTimeout(() => {
+            hideMigrationHintImmediately();
+        }, 300);
+    }
+
+    migrationHintDismissBtn.addEventListener('click', () => {
+        dismissMigrationHintWithFade();
+    });
+
+    async function loadBreakingNotice() {
+        try {
+            const notice = await dataClient.getBreakingUpdateNotice();
+            if (!notice || !notice.bannerText) {
+                breakingNoticeBanner.style.display = 'none';
+                return;
+            }
+            breakingNoticeText.textContent = notice.bannerText;
+            breakingNoticeBanner.style.display = 'flex';
+        } catch (error) {
+            console.warn('Failed to load breaking update notice:', error);
+        }
     }
 
     async function refreshSignedOutHint() {
         try {
+            if (isAuthenticated) {
+                hideMigrationHintImmediately();
+                return;
+            }
+
             const summary = await getLocalSummary();
-            if (summary.hasLocalData) {
-                migrationHint.textContent = `${summary.localVideoCount} local timestamps found. Sign in to migrate and sync to Firebase.`;
-                migrationHint.style.display = 'block';
+            const bannerDismissed = await getBannerDismissed();
+            if (summary.hasLocalData && !bannerDismissed) {
+                const count = Number(summary.localVideoCount || 0);
+                const unit = count === 1 ? 'timestamp' : 'timestamps';
+                migrationHintText.textContent = `${count} local ${unit} found. Sign in to sync.`;
+                migrationHint.classList.remove('is-hiding');
+                migrationHint.style.display = 'flex';
             } else {
-                migrationHint.textContent = '';
-                migrationHint.style.display = 'none';
+                hideMigrationHintImmediately();
             }
         } catch (error) {
             console.error('Failed to load local summary:', error);
-            migrationHint.textContent = '';
-            migrationHint.style.display = 'none';
+            hideMigrationHintImmediately();
         }
     }
 
@@ -1101,11 +1217,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        showMigrationOverlay(`Migrating ${summary.localVideoCount} timestamps to Firebase...`);
+        showStatusMessage(`Found ${summary.localVideoCount} saved timestamps. Syncing to your account.`, 'info');
         await migrateLocalDataToCloud();
-        showMigrationOverlay('Migration complete. Your timestamps now sync across devices.');
-        await wait(900);
-        hideMigrationOverlay();
+        showStatusMessage('Sync complete. Your timestamps are now linked to your account.', 'success');
+        await wait(1500);
+        hideStatusMessage();
     }
 
     function setDataLoadingState(isLoading, message = 'Loading timestamps...') {
@@ -1133,7 +1249,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    async function loadCloudDataIntoUI() {
+    async function loadDataIntoUI() {
         setDataLoadingState(true);
         try {
             await Promise.all([renderWatchlistAsync(), renderCategoryListAsync()]);
@@ -1158,17 +1274,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (!user) {
                 throw new Error('Sign-in did not return user details.');
             }
+
+            try {
+                await setBannerDismissed(true);
+                hideMigrationHintImmediately();
+            } catch (dismissError) {
+                console.warn('Failed to persist bannerDismissed after sign-in:', dismissError);
+            }
+
             updateAuthUI(user);
             try {
                 await runMigrationFlow();
             } catch (migrationError) {
-                handleAuthError('Migration failed', migrationError);
+                showStatusMessage('Could not sync local timestamps yet. Your local data is still safe. Please try again.', 'error');
+                console.error('Migration failed:', migrationError);
             }
-            await loadCloudDataIntoUI();
+            await loadDataIntoUI();
             await refreshSignedOutHint();
         } catch (error) {
             handleAuthError('Sign-in failed', error);
-            hideMigrationOverlay();
+            hideStatusMessage();
         } finally {
             setButtonsDisabled(false);
         }
@@ -1179,8 +1304,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             setButtonsDisabled(true);
             await signOutInBackground();
             updateAuthUI(null);
-            await loadCloudDataIntoUI();
+            await loadDataIntoUI();
             await refreshSignedOutHint();
+            hideStatusMessage();
         } catch (error) {
             handleAuthError('Sign-out failed', error);
         } finally {
@@ -1192,16 +1318,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const authStatus = await runtimeRequest({ type: 'AUTH_STATUS' });
         const user = authStatus.authenticated ? authStatus.user : null;
         updateAuthUI(user);
-
-        if (user) {
-            try {
-                await runMigrationFlow();
-            } catch (migrationError) {
-                console.error('Migration flow failed:', migrationError);
-            }
-        }
-
-        await loadCloudDataIntoUI();
+        await loadDataIntoUI();
     } catch (error) {
         console.error('Failed to load auth status', error);
         try {
@@ -1210,9 +1327,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.warn('Failed clearing background auth session:', signOutError);
         }
         updateAuthUI(null);
-        await loadCloudDataIntoUI();
+        await loadDataIntoUI();
     } finally {
-        hideMigrationOverlay();
+        await loadBreakingNotice();
         await refreshSignedOutHint();
     }
 

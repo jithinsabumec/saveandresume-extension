@@ -41,32 +41,16 @@ function getVideoThumbnail(videoId) {
     return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
 }
 
-function runtimeRequest(message) {
-    return new Promise((resolve, reject) => {
-        chrome.runtime.sendMessage(message, (response) => {
-            if (chrome.runtime.lastError) {
-                reject(new Error(chrome.runtime.lastError.message));
-                return;
-            }
-
-            if (!response || response.ok !== true) {
-                reject(new Error(response?.error || 'UNKNOWN_ERROR'));
-                return;
-            }
-
-            resolve(response);
-        });
-    });
-}
+const dataClient = globalThis.SaveResumeDataLayer.createClientDataLayer();
 
 function getCloudCategories(callback) {
-    runtimeRequest({ type: 'DATA_GET', keys: ['categories'] })
-        .then((response) => callback(response.data?.categories || {}, null))
+    dataClient.get(['categories'])
+        .then((data) => callback(data.categories || {}, null))
         .catch((error) => callback(null, error));
 }
 
 function setCloudCategories(categories, callback) {
-    runtimeRequest({ type: 'DATA_SET', data: { categories } })
+    dataClient.set({ categories })
         .then(() => {
             if (typeof callback === 'function') callback(null);
         })
@@ -174,35 +158,6 @@ function showCustomPopup(data) {
     }, 3000);
 }
 
-function showSignInRequiredPopup() {
-    const existing = document.getElementById('yt-auth-required-popup');
-    if (existing) {
-        existing.remove();
-    }
-
-    const popup = document.createElement('div');
-    popup.id = 'yt-auth-required-popup';
-    popup.style.position = 'fixed';
-    popup.style.top = '20px';
-    popup.style.right = '20px';
-    popup.style.zIndex = '10000';
-    popup.style.background = '#1C1C1C';
-    popup.style.border = '1px solid #A33A4D';
-    popup.style.color = '#ffffff';
-    popup.style.padding = '12px 16px';
-    popup.style.borderRadius = '4px';
-    popup.style.fontFamily = 'Manrope, sans-serif';
-    popup.style.fontSize = '14px';
-    popup.style.maxWidth = '260px';
-    popup.innerHTML = 'Sign in from the extension popup to use Save and Resume.';
-
-    document.body.appendChild(popup);
-
-    setTimeout(() => {
-        popup.remove();
-    }, 3000);
-}
-
 // Function to check if extension context is valid
 function isExtensionContextValid() {
     try {
@@ -259,11 +214,7 @@ function findVideoCategory(videoId, callback) {
 
     getCloudCategories((categories, error) => {
         if (error) {
-            if (error.message === 'AUTH_REQUIRED') {
-                showSignInRequiredPopup();
-            } else {
-                console.error('Failed to load categories:', error);
-            }
+            console.error('Failed to load categories:', error);
             callback(null);
             return;
         }
@@ -734,11 +685,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     getCloudCategories((categories, error) => {
         if (error) {
             closeDialog();
-            if (error.message === 'AUTH_REQUIRED') {
-                showSignInRequiredPopup();
-            } else {
-                console.error('Failed to load categories:', error);
-            }
+            console.error('Failed to load categories:', error);
             return;
         }
 
@@ -839,11 +786,7 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
 
     getCloudCategories((categories, error) => {
         if (error) {
-            if (error.message === 'AUTH_REQUIRED') {
-                showSignInRequiredPopup();
-            } else {
-                console.error('Failed to load categories:', error);
-            }
+            console.error('Failed to load categories:', error);
             return;
         }
 
@@ -862,11 +805,7 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
 
             setCloudCategories(categories, (saveError) => {
                 if (saveError) {
-                    if (saveError.message === 'AUTH_REQUIRED') {
-                        showSignInRequiredPopup();
-                    } else {
-                        console.error('Error saving to cloud:', saveError);
-                    }
+                    console.error('Error saving to timestamp store:', saveError);
                     showCustomPopup({
                         action: 'error',
                         time: formattedTime
@@ -892,11 +831,7 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
 
             setCloudCategories(categories, (saveError) => {
                 if (saveError) {
-                    if (saveError.message === 'AUTH_REQUIRED') {
-                        showSignInRequiredPopup();
-                    } else {
-                        console.error('Error saving to cloud:', saveError);
-                    }
+                    console.error('Error saving to timestamp store:', saveError);
                     showCustomPopup({
                         action: 'error',
                         time: formattedTime

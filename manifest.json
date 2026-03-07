@@ -43,6 +43,7 @@
                 "*://www.youtube.com/*"
             ],
             "js": [
+                "data-layer.js",
                 "content.js"
             ]
         }

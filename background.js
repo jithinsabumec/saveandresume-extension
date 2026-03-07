@@ -1,13 +1,20 @@
 const AUTH_SUCCESS = 'AUTH_SUCCESS';
 
+const BREAKING_UPDATES = {
+    '2.0.0': {
+        message: 'Data storage is changing in this update.',
+        effectiveDate: '2025-04-01'
+    }
+};
+
 try {
     importScripts('firebase-config.js');
+    importScripts('data-layer.js');
 } catch (error) {
-    console.error('Failed to load firebase-config.js. Run npm run setup:config.', error);
+    console.error('Failed to load runtime config files.', error);
 }
 
 const AUTH_SESSION_KEY = 'authSession';
-const STATE_DOC_PATH_SUFFIX = '/data/state';
 
 let watchlistWindow = null;
 let firebaseConfigCache = null;
@@ -44,11 +51,6 @@ function readFirebaseRuntimeConfig() {
     return firebaseConfigCache;
 }
 
-function getFirestoreBaseUrl() {
-    const { projectId } = readFirebaseRuntimeConfig();
-    return `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
-}
-
 function isTrustedExternalSender(sender) {
     if (!sender) {
         return false;
@@ -79,122 +81,6 @@ function isValidAuthPayload(message) {
     }
 
     return true;
-}
-
-function normalizeVideo(video) {
-    if (!video || typeof video !== 'object') {
-        return null;
-    }
-
-    if (typeof video.videoId !== 'string' || video.videoId.trim() === '') {
-        return null;
-    }
-
-    const currentTime = Number(video.currentTime);
-    const timestamp = Number(video.timestamp);
-
-    return {
-        videoId: video.videoId,
-        title: typeof video.title === 'string' ? video.title : '',
-        currentTime: Number.isFinite(currentTime) && currentTime >= 0 ? currentTime : 0,
-        thumbnail: typeof video.thumbnail === 'string' ? video.thumbnail : '',
-        timestamp: Number.isFinite(timestamp) ? timestamp : Date.now()
-    };
-}
-
-function normalizeCategories(input) {
-    const categories = {};
-
-    if (input && typeof input === 'object') {
-        Object.entries(input).forEach(([category, videos]) => {
-            if (typeof category !== 'string' || category.trim() === '') {
-                return;
-            }
-
-            const list = Array.isArray(videos) ? videos : [];
-            const normalizedVideos = [];
-
-            list.forEach((video) => {
-                const normalized = normalizeVideo(video);
-                if (!normalized) {
-                    return;
-                }
-
-                const existingIndex = normalizedVideos.findIndex((v) => v.videoId === normalized.videoId);
-                if (existingIndex === -1) {
-                    normalizedVideos.push(normalized);
-                    return;
-                }
-
-                if (normalized.timestamp >= normalizedVideos[existingIndex].timestamp) {
-                    normalizedVideos[existingIndex] = normalized;
-                }
-            });
-
-            categories[category] = normalizedVideos;
-        });
-    }
-
-    return categories;
-}
-
-function mergeCategories(remoteCategories, localCategories) {
-    const merged = normalizeCategories(remoteCategories);
-    const normalizedLocal = normalizeCategories(localCategories);
-
-    Object.entries(normalizedLocal).forEach(([category, localVideos]) => {
-        if (!merged[category]) {
-            merged[category] = [];
-        }
-
-        localVideos.forEach((localVideo) => {
-            const existingIndex = merged[category].findIndex((video) => video.videoId === localVideo.videoId);
-
-            if (existingIndex === -1) {
-                merged[category].push(localVideo);
-                return;
-            }
-
-            if (localVideo.timestamp >= merged[category][existingIndex].timestamp) {
-                merged[category][existingIndex] = localVideo;
-            }
-        });
-    });
-
-    Object.keys(merged).forEach((category) => {
-        merged[category].sort((a, b) => b.timestamp - a.timestamp);
-    });
-
-    return merged;
-}
-
-function countVideos(categories) {
-    const normalized = normalizeCategories(categories);
-    return Object.values(normalized).reduce((total, list) => total + list.length, 0);
-}
-
-function parseStateDocument(documentPayload) {
-    const fields = documentPayload?.fields || {};
-    let categories = {};
-
-    if (fields.categoriesJson?.stringValue) {
-        try {
-            categories = normalizeCategories(JSON.parse(fields.categoriesJson.stringValue));
-        } catch (error) {
-            console.error('Failed to parse categoriesJson from Firestore. Using defaults.', error);
-        }
-    }
-
-    const migrationComplete = fields.migrationComplete?.booleanValue === true;
-
-    return {
-        categories,
-        migrationComplete
-    };
-}
-
-function buildStateDocUrl(uid) {
-    return `${getFirestoreBaseUrl()}/users/${encodeURIComponent(uid)}${STATE_DOC_PATH_SUFFIX}`;
 }
 
 function getStorageLocal(keys) {
@@ -482,157 +368,21 @@ async function getValidAuthSession() {
     }
 }
 
-async function firestoreFetchState(uid, idToken) {
-    const response = await fetch(buildStateDocUrl(uid), {
-        method: 'GET',
-        headers: {
-            Authorization: `Bearer ${idToken}`
-        }
-    });
+const dataLayer = globalThis.SaveResumeDataLayer.createBackgroundDataLayer({
+    chromeApi: chrome,
+    readFirebaseRuntimeConfig,
+    getAuthSession,
+    getValidAuthSession,
+    breakingUpdates: BREAKING_UPDATES
+});
 
-    if (response.status === 404) {
-        return {
-            categories: {},
-            migrationComplete: false
-        };
+(async () => {
+    try {
+        await dataLayer.bootstrapVersionState();
+    } catch (error) {
+        console.warn('Version bootstrap failed:', error);
     }
-
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-        const message = payload?.error?.message || `Firestore fetch failed (${response.status})`;
-        throw new Error(message);
-    }
-
-    return parseStateDocument(payload);
-}
-
-async function firestoreSaveState(uid, idToken, categories, options = {}) {
-    const normalized = normalizeCategories(categories);
-    const now = Date.now();
-
-    const fields = {
-        schemaVersion: { integerValue: '2' },
-        categoriesJson: { stringValue: JSON.stringify(normalized) },
-        migrationComplete: { booleanValue: options.migrationComplete !== false },
-        updatedAt: { integerValue: String(now) }
-    };
-
-    if (options.migrationComplete !== false) {
-        fields.migratedAt = { integerValue: String(options.migratedAt || now) };
-    }
-
-    const response = await fetch(buildStateDocUrl(uid), {
-        method: 'PATCH',
-        headers: {
-            Authorization: `Bearer ${idToken}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ fields })
-    });
-
-    const payload = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-        const message = payload?.error?.message || `Firestore save failed (${response.status})`;
-        throw new Error(message);
-    }
-
-    return parseStateDocument(payload);
-}
-
-function extractLocalCategories(result) {
-    const legacyWatchlist = Array.isArray(result.watchlist) ? result.watchlist : [];
-    const hasLegacyWatchlist = legacyWatchlist.length > 0;
-
-    let categories = normalizeCategories(result.categories || {});
-
-    if (hasLegacyWatchlist) {
-        const legacyDefault = legacyWatchlist.map(normalizeVideo).filter(Boolean);
-        categories = mergeCategories(categories, { Default: legacyDefault });
-    }
-
-    return categories;
-}
-
-async function getLocalSummary() {
-    const result = await getStorageLocal(['categories', 'watchlist']);
-    const localCategories = extractLocalCategories(result);
-    const localVideoCount = countVideos(localCategories);
-
-    return {
-        localVideoCount,
-        hasLocalData: localVideoCount > 0
-    };
-}
-
-async function migrateLocalDataToCloud() {
-    const session = await getValidAuthSession();
-    const localResult = await getStorageLocal(['categories', 'watchlist']);
-    const localCategories = extractLocalCategories(localResult);
-    const localVideoCount = countVideos(localCategories);
-
-    const remoteState = await firestoreFetchState(session.uid, session.idToken);
-    const mergedCategories = mergeCategories(remoteState.categories, localCategories);
-    const mergedVideoCount = countVideos(mergedCategories);
-
-    if (localVideoCount > 0 || !remoteState.migrationComplete) {
-        await firestoreSaveState(session.uid, session.idToken, mergedCategories, {
-            migrationComplete: true
-        });
-    }
-
-    if (localVideoCount > 0) {
-        await removeStorageLocal(['categories', 'watchlist']);
-    }
-
-    return {
-        localVideoCount,
-        mergedVideoCount,
-        migrated: localVideoCount > 0,
-        alreadyMigrated: remoteState.migrationComplete && localVideoCount === 0
-    };
-}
-
-async function handleCloudGet(keys) {
-    const requestedKeys = Array.isArray(keys) ? keys : [keys];
-    const session = await getValidAuthSession();
-    const state = await firestoreFetchState(session.uid, session.idToken);
-
-    const result = {};
-
-    requestedKeys.forEach((key) => {
-        if (key === 'categories') {
-            result.categories = state.categories;
-            return;
-        }
-
-        if (key === 'watchlist') {
-            result.watchlist = [];
-            return;
-        }
-
-        result[key] = undefined;
-    });
-
-    return result;
-}
-
-async function handleCloudSet(data) {
-    const session = await getValidAuthSession();
-
-    if (!data || typeof data !== 'object') {
-        return { success: true };
-    }
-
-    if (Object.prototype.hasOwnProperty.call(data, 'categories')) {
-        await firestoreSaveState(session.uid, session.idToken, data.categories, {
-            migrationComplete: true
-        });
-    }
-
-    return { success: true };
-}
+})();
 
 function sendOk(sendResponse, payload = {}) {
     sendResponse({ ok: true, ...payload });
@@ -721,6 +471,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         if (message.type === 'AUTH_SIGN_OUT') {
+            try {
+                await dataLayer.cacheFirestoreToLocalBeforeSignOut();
+            } catch (error) {
+                if (!dataLayer.isLikelyOfflineError(error)) {
+                    throw error;
+                }
+                console.warn('Sign-out cache step skipped due offline state:', error?.message || error);
+            }
+
             await clearAuthSession();
             try {
                 await clearCachedIdentityTokens();
@@ -752,25 +511,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         if (message.type === 'DATA_LOCAL_SUMMARY') {
-            const summary = await getLocalSummary();
+            const summary = await dataLayer.getLocalSummary();
             sendOk(sendResponse, summary);
             return;
         }
 
         if (message.type === 'DATA_MIGRATE_LOCAL') {
-            const migration = await migrateLocalDataToCloud();
+            const migration = await dataLayer.migrateLocalDataToCloud();
             sendOk(sendResponse, migration);
             return;
         }
 
         if (message.type === 'DATA_GET') {
-            const data = await handleCloudGet(message.keys || []);
+            const data = await dataLayer.readData(message.keys || []);
             sendOk(sendResponse, { data });
             return;
         }
 
         if (message.type === 'DATA_SET') {
-            const result = await handleCloudSet(message.data || {});
+            const result = await dataLayer.writeData(message.data || {});
+            sendOk(sendResponse, result);
+            return;
+        }
+
+        if (message.type === 'DATA_NETWORK_STATUS') {
+            const result = await dataLayer.setNetworkStatus(message.online === true);
+            sendOk(sendResponse, result);
+            return;
+        }
+
+        if (message.type === 'DATA_GET_BREAKING_UPDATE_NOTICE') {
+            const notice = await dataLayer.getBreakingUpdateNotice();
+            sendOk(sendResponse, { notice });
+            return;
+        }
+
+        if (message.type === 'DATA_DISMISS_BREAKING_UPDATE_NOTICE') {
+            await dataLayer.dismissBreakingUpdateNotice();
+            sendOk(sendResponse);
+            return;
+        }
+
+        if (message.type === 'DATA_FLUSH_PENDING') {
+            const result = await dataLayer.flushPendingQueue();
             sendOk(sendResponse, result);
             return;
         }
