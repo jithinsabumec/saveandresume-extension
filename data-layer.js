@@ -221,10 +221,17 @@
 
         if (isObject(legacyCategories)) {
             Object.entries(legacyCategories).forEach(([categoryName, list]) => {
-                if (!Array.isArray(list)) {
+                const safeCategoryName = normalizeCategoryName(categoryName);
+                if (!safeCategoryName || !Array.isArray(list)) {
                     return;
                 }
-                list.forEach((video) => applyVideo(categoryName, video));
+
+                // Preserve empty categories from legacy shape (needed for manual category management).
+                if (!local.categories[safeCategoryName]) {
+                    local.categories[safeCategoryName] = [];
+                }
+
+                list.forEach((video) => applyVideo(safeCategoryName, video));
             });
         }
 

@@ -689,15 +689,16 @@ function hideCategoryModal() {
     modal.style.display = 'none';
 }
 
-function addNewCategory() {
+async function addNewCategory() {
     const categoryName = document.getElementById('categoryNameInput').value.trim();
     if (!categoryName) {
         alert('Please enter a category name');
         return;
     }
 
-    cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || {};
+    try {
+        const data = await dataClient.get(['categories']);
+        const categories = data.categories || {};
 
         // Check if category already exists
         if (categories[categoryName]) {
@@ -708,12 +709,15 @@ function addNewCategory() {
         // Add new empty category
         categories[categoryName] = [];
 
-        cloudStorage.set({ categories: categories }, function () {
-            hideCategoryModal();
-            renderCategoryList();
-            console.log('New category added:', categoryName);
-        });
-    });
+        await dataClient.set({ categories });
+        hideCategoryModal();
+        renderCategoryList();
+        console.log('New category added:', categoryName);
+    } catch (error) {
+        console.error('Failed to add category:', error);
+        const details = error?.message || 'Unknown error';
+        alert(`Could not add category. ${details}`);
+    }
 }
 
 // Add function to toggle edit mode
