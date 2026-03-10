@@ -1,5 +1,7 @@
 let isEditMode = false;
+let pendingCategoryDeletion = null;
 const dataClient = globalThis.SaveResumeDataLayer.createClientDataLayer();
+const PROTECTED_CATEGORY_NAMES = new Set(['Default']);
 
 function runtimeRequest(message) {
     return new Promise((resolve, reject) => {
@@ -109,64 +111,37 @@ function escapeForAttributeSelector(value) {
 
 function removeVideoFromWatchlist(videoId, timestamp, category, event) {
     event.stopPropagation();
+    const activeCategoryItem = document.querySelector('.category-item.active');
+    const activeCategory = activeCategoryItem?.getAttribute('data-category') || 'all';
 
     cloudStorage.get(['categories'], function (result) {
         const categories = result.categories || {};
+        let didRemoveTimestamp = false;
 
-        if (categories[category]) {
-            const indexToRemove = categories[category].findIndex(video =>
-                video.videoId === videoId && video.timestamp === timestamp
-            );
+        Object.keys(categories).forEach((categoryName) => {
+            const videos = Array.isArray(categories[categoryName]) ? categories[categoryName] : [];
+            const filteredVideos = videos.filter((video) => {
+                return !(video.videoId === videoId && video.timestamp === timestamp);
+            });
 
-            if (indexToRemove !== -1) {
-                // Remove the video from the category
-                categories[category].splice(indexToRemove, 1);
-
-                // Ask if user wants to delete a category after removing its last timestamp
-                if (categories[category].length === 0) {
-                    if (confirm(`The category "${category}" is now empty. Do you want to delete it?`)) {
-                        delete categories[category];
-                    }
-                }
-
-                cloudStorage.set({ categories: categories }, function () {
-                    // Update the category count in the sidebar
-                    updateCategoryCounts();
-
-                    // Remove the specific list item from the DOM
-                    const listItem = document.querySelector(`.watchlist-item[data-video-id="${videoId}"][data-timestamp="${timestamp}"]`);
-                    if (listItem) {
-                        listItem.style.animation = 'fadeOut 0.2s ease-in-out'; // Add fade-out animation
-                        setTimeout(() => {
-                            listItem.remove(); // Remove the item after the animation
-
-                            // Check if category section is now empty
-                            const safeCategorySelector = escapeForAttributeSelector(category);
-                            const categorySection = document.querySelector(`.category-section[data-category="${safeCategorySelector}"]`);
-                            if (categorySection && !categorySection.querySelector('.watchlist-item')) {
-                                categorySection.style.animation = 'fadeOut 0.2s ease-in-out';
-                                setTimeout(() => {
-                                    categorySection.remove();
-
-                                    // Check if we should update the categories list UI
-                                    if (!categories[category]) {
-                                        const categoryItem = document.querySelector(`.category-item[data-category="${safeCategorySelector}"]`);
-                                        if (categoryItem) {
-                                            categoryItem.remove();
-                                        }
-                                    }
-
-                                    // If no items left, show empty state
-                                    checkEmptyState();
-                                }, 200);
-                            }
-                        }, 200); // Match the duration of the animation
-                    }
-
-                    console.log('Video removed from watchlist:', videoId);
-                });
+            if (filteredVideos.length !== videos.length) {
+                didRemoveTimestamp = true;
+                categories[categoryName] = filteredVideos;
             }
+        });
+
+        if (!didRemoveTimestamp) {
+            return;
         }
+
+        // Remove only timestamp entries. Keep categories even when they become empty.
+        cloudStorage.set({ categories: categories }, function () {
+            renderCategoryList(() => {
+                const shouldKeepSelectedCategory = activeCategory === 'all' || Object.prototype.hasOwnProperty.call(categories, activeCategory);
+                filterByCategory(shouldKeepSelectedCategory ? activeCategory : 'all');
+                updateCategoryCounts();
+            });
+        });
     });
 }
 
@@ -251,6 +226,15 @@ function checkEmptyState() {
             watchlistElement.appendChild(emptyState);
         }
     });
+}
+
+function isCategoryEditModeActive() {
+    const categoryList = document.getElementById('categoryList');
+    return Boolean(categoryList && categoryList.classList.contains('edit-mode'));
+}
+
+function isProtectedCategory(categoryName) {
+    return PROTECTED_CATEGORY_NAMES.has(String(categoryName || '').trim());
 }
 
 function renderWatchlist(onComplete) {
@@ -412,7 +396,7 @@ function renderCategoryList(onComplete) {
 
         allCategory.setAttribute('data-category', 'all');
         allCategory.onclick = () => {
-            if (isEditMode) {
+            if (isCategoryEditModeActive()) {
                 return;
             }
             filterByCategory('all');
@@ -421,8 +405,11 @@ function renderCategoryList(onComplete) {
 
         // Add all user categories
         Object.keys(categories).sort().forEach(category => {
+            const isProtected = isProtectedCategory(category);
             const categoryItem = document.createElement('li');
-            categoryItem.className = 'category-item can-delete';
+            categoryItem.className = isProtected
+                ? 'category-item protected-category'
+                : 'category-item can-delete';
 
             // Create a container for category text
             // Create category name text
@@ -437,22 +424,28 @@ function renderCategoryList(onComplete) {
             countPill.textContent = categories[category].length;
             categoryItem.appendChild(countPill);
 
-            const deleteBtn = document.createElement('span');
-            deleteBtn.className = 'delete-category-btn';
-            deleteBtn.title = `Delete "${category}"`;
-            deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z"></path></svg>`;
-            deleteBtn.onclick = (event) => {
-                event.stopPropagation();
-                if (isEditMode) {
-                    deleteCategory(category);
-                }
-            };
-            categoryItem.appendChild(deleteBtn);
+            if (isProtected) {
+                categoryItem.title = `"${category}" can't be deleted`;
+            } else {
+                const deleteBtn = document.createElement('span');
+                deleteBtn.className = 'delete-category-btn';
+                deleteBtn.title = `Delete "${category}"`;
+                deleteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 256 256"><path d="M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z"></path></svg>`;
+                deleteBtn.onclick = (event) => {
+                    event.stopPropagation();
+                    if (isCategoryEditModeActive()) {
+                        deleteCategory(category);
+                    }
+                };
+                categoryItem.appendChild(deleteBtn);
+            }
 
             categoryItem.setAttribute('data-category', category);
             categoryItem.onclick = () => {
-                if (isEditMode) {
-                    deleteCategory(category);
+                if (isCategoryEditModeActive()) {
+                    if (!isProtected) {
+                        deleteCategory(category);
+                    }
                     return;
                 }
 
@@ -466,7 +459,33 @@ function renderCategoryList(onComplete) {
 
 // Add function to delete category
 function deleteCategory(categoryName) {
-    if (!confirm(`Are you sure you want to delete the category "${categoryName}" and all its timestamps?`)) {
+    if (isProtectedCategory(categoryName)) {
+        alert(`"${categoryName}" is built in and can't be deleted.`);
+        return;
+    }
+
+    const modal = document.getElementById('deleteCategoryModal');
+    const message = document.getElementById('deleteCategoryMessage');
+    const confirmButton = document.getElementById('confirmDeleteCategoryBtn');
+
+    pendingCategoryDeletion = categoryName;
+
+    if (message) {
+        message.textContent = `Delete "${categoryName}" and remove the timestamps saved inside it?`;
+    }
+
+    if (modal) {
+        modal.style.display = 'block';
+    }
+
+    if (confirmButton) {
+        confirmButton.focus();
+    }
+}
+
+async function confirmDeleteCategory() {
+    const categoryName = pendingCategoryDeletion;
+    if (!categoryName) {
         return;
     }
 
@@ -474,36 +493,32 @@ function deleteCategory(categoryName) {
     const activeCategory = activeCategoryItem?.getAttribute('data-category') || 'all';
     const nextSelectedCategory = activeCategory === categoryName ? 'all' : activeCategory;
 
-    dataClient.get(['categories'])
-        .then((data) => {
-            const categories = data.categories || {};
+    try {
+        const data = await dataClient.get(['categories']);
+        const categories = data.categories || {};
 
-            if (!Object.prototype.hasOwnProperty.call(categories, categoryName)) {
-                renderCategoryList(() => {
-                    filterByCategory(nextSelectedCategory);
-                });
-                return null;
-            }
-
-            const updatedCategories = { ...categories };
-            delete updatedCategories[categoryName];
-
-            return dataClient.set({ categories: updatedCategories });
-        })
-        .then((result) => {
-            if (result === null) {
-                return;
-            }
-
+        if (!Object.prototype.hasOwnProperty.call(categories, categoryName)) {
+            hideDeleteCategoryModal();
             renderCategoryList(() => {
                 filterByCategory(nextSelectedCategory);
             });
-        })
-        .catch((error) => {
-            console.error('Failed to delete category:', error);
-            const details = error?.message || 'Unknown error';
-            alert(`Could not delete category. ${details}`);
+            return;
+        }
+
+        const updatedCategories = { ...categories };
+        delete updatedCategories[categoryName];
+
+        await dataClient.set({ categories: updatedCategories });
+
+        hideDeleteCategoryModal();
+        renderCategoryList(() => {
+            filterByCategory(nextSelectedCategory);
         });
+    } catch (error) {
+        console.error('Failed to delete category:', error);
+        const details = error?.message || 'Unknown error';
+        alert(`Could not delete category. ${details}`);
+    }
 }
 
 function filterByCategory(selectedCategory) {
@@ -687,6 +702,21 @@ function showCategoryModal() {
 function hideCategoryModal() {
     const modal = document.getElementById('categoryModal');
     modal.style.display = 'none';
+}
+
+function hideDeleteCategoryModal() {
+    const modal = document.getElementById('deleteCategoryModal');
+    const message = document.getElementById('deleteCategoryMessage');
+
+    pendingCategoryDeletion = null;
+
+    if (modal) {
+        modal.style.display = 'none';
+    }
+
+    if (message) {
+        message.textContent = '';
+    }
 }
 
 async function addNewCategory() {
@@ -989,8 +1019,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const saveCategoriesBtn = document.getElementById('saveCategoriesBtn');
     const saveCategoryBtn = document.getElementById('saveCategoryBtn');
     const cancelCategoryBtn = document.getElementById('cancelCategoryBtn');
-    const closeModalBtn = document.querySelector('.close-modal');
+    const closeCategoryModalBtn = document.getElementById('closeCategoryModalBtn');
     const categoryNameInput = document.getElementById('categoryNameInput');
+    const deleteCategoryModal = document.getElementById('deleteCategoryModal');
+    const confirmDeleteCategoryBtn = document.getElementById('confirmDeleteCategoryBtn');
+    const cancelDeleteCategoryBtn = document.getElementById('cancelDeleteCategoryBtn');
+    const closeDeleteCategoryModalBtn = document.getElementById('closeDeleteCategoryModalBtn');
     const mainContent = document.querySelector('.main-content');
     const categoriesContainer = document.querySelector('.categories-container');
     const dataLoadingState = document.getElementById('data-loading-state');
@@ -1341,7 +1375,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     addCategoryBtn.addEventListener('click', showCategoryModal);
     saveCategoryBtn.addEventListener('click', addNewCategory);
     cancelCategoryBtn.addEventListener('click', hideCategoryModal);
-    closeModalBtn.addEventListener('click', hideCategoryModal);
+    closeCategoryModalBtn.addEventListener('click', hideCategoryModal);
+    confirmDeleteCategoryBtn.addEventListener('click', confirmDeleteCategory);
+    cancelDeleteCategoryBtn.addEventListener('click', hideDeleteCategoryModal);
+    closeDeleteCategoryModalBtn.addEventListener('click', hideDeleteCategoryModal);
+
+    deleteCategoryModal.addEventListener('click', (event) => {
+        if (event.target === deleteCategoryModal) {
+            hideDeleteCategoryModal();
+        }
+    });
 
     // Setup edit mode toggle
     editCategoriesBtn.addEventListener('click', toggleEditMode);

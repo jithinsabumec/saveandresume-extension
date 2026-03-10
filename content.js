@@ -42,6 +42,26 @@ function getVideoThumbnail(videoId) {
 }
 
 const dataClient = globalThis.SaveResumeDataLayer.createClientDataLayer();
+const CATEGORY_DIALOG_RADIUS = '12px';
+const CATEGORY_FIELD_RADIUS = '8px';
+const CATEGORY_FIELD_HEIGHT = '36px';
+
+function applyCategoryFieldStyles(element) {
+    element.style.width = '100%';
+    element.style.height = CATEGORY_FIELD_HEIGHT;
+    element.style.minHeight = CATEGORY_FIELD_HEIGHT;
+    element.style.padding = '0 12px';
+    element.style.backgroundColor = '#242424';
+    element.style.border = '1px solid #393838';
+    element.style.borderRadius = CATEGORY_FIELD_RADIUS;
+    element.style.color = '#ffffff';
+    element.style.fontSize = '14px';
+    element.style.fontWeight = '500';
+    element.style.fontFamily = 'Manrope, sans-serif';
+    element.style.boxSizing = 'border-box';
+    element.style.outline = 'none';
+    element.style.boxShadow = 'none';
+}
 
 function getCloudCategories(callback) {
     dataClient.get(['categories'])
@@ -315,7 +335,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     dialog.style.width = '350px';
     dialog.style.maxHeight = '400px';
     dialog.style.backgroundColor = '#191919';
-    dialog.style.borderRadius = '8px';
+    dialog.style.borderRadius = CATEGORY_DIALOG_RADIUS;
     dialog.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.5)';
     dialog.style.padding = '20px';
     dialog.style.zIndex = '10000';
@@ -479,23 +499,11 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
 
     const categoryTrigger = document.createElement('button');
     categoryTrigger.type = 'button';
-    categoryTrigger.style.width = '100%';
-    categoryTrigger.style.minHeight = '44px';
+    applyCategoryFieldStyles(categoryTrigger);
     categoryTrigger.style.display = 'flex';
     categoryTrigger.style.alignItems = 'center';
     categoryTrigger.style.justifyContent = 'space-between';
-    categoryTrigger.style.padding = '10px 12px';
-    categoryTrigger.style.backgroundColor = '#242424';
-    categoryTrigger.style.border = '1px solid #393838';
-    categoryTrigger.style.borderRadius = '8px';
-    categoryTrigger.style.color = '#ffffff';
-    categoryTrigger.style.fontSize = '14px';
-    categoryTrigger.style.fontWeight = '500';
-    categoryTrigger.style.fontFamily = 'Manrope, sans-serif';
     categoryTrigger.style.cursor = 'pointer';
-    categoryTrigger.style.boxSizing = 'border-box';
-    categoryTrigger.style.outline = 'none';
-    categoryTrigger.style.boxShadow = 'none';
     categoryTrigger.setAttribute('aria-haspopup', 'listbox');
     categoryTrigger.setAttribute('aria-expanded', 'false');
 
@@ -516,7 +524,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     categoryDropdownMenu.style.right = '0';
     categoryDropdownMenu.style.backgroundColor = '#191919';
     categoryDropdownMenu.style.border = '1px solid #2D2D2D';
-    categoryDropdownMenu.style.borderRadius = '14px';
+    categoryDropdownMenu.style.borderRadius = CATEGORY_FIELD_RADIUS;
     categoryDropdownMenu.style.boxShadow = '0 10px 24px rgba(0, 0, 0, 0.35)';
     categoryDropdownMenu.style.padding = '4px';
     categoryDropdownMenu.style.boxSizing = 'border-box';
@@ -538,17 +546,8 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     const newCategoryInput = document.createElement('input');
     newCategoryInput.type = 'text';
     newCategoryInput.placeholder = 'Enter new category name';
-    newCategoryInput.style.backgroundColor = '#242424';
-    newCategoryInput.style.border = '1px solid #393838';
-    newCategoryInput.style.borderRadius = '8px';
-    newCategoryInput.style.padding = '10px 12px';
-    newCategoryInput.style.color = '#ffffff';
-    newCategoryInput.style.fontFamily = 'Manrope, sans-serif';
-    newCategoryInput.style.width = '100%';
+    applyCategoryFieldStyles(newCategoryInput);
     newCategoryInput.style.display = 'none';
-    newCategoryInput.style.boxSizing = 'border-box';
-    newCategoryInput.style.outline = 'none';
-    newCategoryInput.style.boxShadow = 'none';
 
     const selectedTickIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 6"><path fill="#1FA700" d="M3.359 6L0 2.64l.947-.947 2.412 2.407L9.053 0 10 .947 3.359 6Z"/></svg>';
     let selectedCategoryValue = 'Default';

@@ -440,6 +440,19 @@ main {
     color: #FFD8E1;
 }
 
+.edit-mode .category-item.protected-category {
+    background: #191919;
+    border-color: #343434;
+    color: #7A7A7A;
+    cursor: not-allowed;
+    opacity: 0.8;
+}
+
+.edit-mode .category-item.protected-category .category-count {
+    background: #2A2A2A;
+    color: #8A8A8A;
+}
+
 .edit-mode .category-item[data-category="all"] {
     padding-right: 12px;
     background: #191919;
@@ -503,7 +516,7 @@ main {
     margin: 15% auto;
     padding: 20px;
     border: 1px solid #2D2D2D;
-    border-radius: 8px;
+    border-radius: 12px;
     width: 80%;
     max-width: 300px;
 }
@@ -543,20 +556,37 @@ main {
     margin-bottom: 0;
 }
 
+.modal-message {
+    margin: 0;
+    color: #d2d2d2;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 .modal input {
     width: 100%;
-    padding: 8px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0 12px;
     margin: 12px 0;
     background: #242424;
     border: 1px solid #393838;
-    border-radius: 4px;
+    border-radius: 12px;
     color: #ffffff;
     font-family: 'Manrope', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
     box-sizing: border-box;
+    outline: none;
+    box-shadow: none;
     -webkit-appearance: none;
     /* Remove default Safari/Chrome appearance */
     appearance: none;
     /* Remove default appearance */
+}
+
+.modal input::placeholder {
+    color: #b2b2b2;
 }
 
 .modal-buttons {
@@ -568,7 +598,7 @@ main {
 
 .modal-buttons button {
     padding: 6px 12px;
-    border-radius: 4px;
+    border-radius: 8px;
     cursor: pointer;
     font-family: 'Manrope', sans-serif;
 }
@@ -595,6 +625,30 @@ main {
     background: #333333;
     border-color: #555555;
     color: #ffffff;
+}
+
+#cancelDeleteCategoryBtn {
+    background: #242424;
+    border: 1px solid #393838;
+    color: rgb(184, 184, 184);
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+#cancelDeleteCategoryBtn:hover {
+    background: #333333;
+    border-color: #555555;
+    color: #ffffff;
+}
+
+#confirmDeleteCategoryBtn {
+    background: #781D2F;
+    border: 1px solid #ED1A43;
+    color: #ffffff;
+    transition: background-color 0.2s ease;
+}
+
+#confirmDeleteCategoryBtn:hover {
+    background: #611726;
 }
 
 /* Existing styles */

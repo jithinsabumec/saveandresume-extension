@@ -59,7 +59,7 @@
                         </div>
                     </div>
                     <div id="deleteModeHint" class="delete-mode-hint" aria-live="polite">
-                        Delete mode: Tap a category or X to delete
+                        Delete mode: Tap a category or X, then confirm. Default stays.
                     </div>
                     <ul id="categoryList" class="category-list">
                         <!-- Categories will be populated here -->
@@ -89,7 +89,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3>Add New Category</h3>
-                <span class="close-modal" title="Close">
+                <span id="closeCategoryModalBtn" class="close-modal" title="Close">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
                         viewBox="0 0 256 256">
                         <path
@@ -102,6 +102,27 @@
             <div class="modal-buttons">
                 <button id="saveCategoryBtn">Save</button>
                 <button id="cancelCategoryBtn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="deleteCategoryModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Delete Category</h3>
+                <span id="closeDeleteCategoryModalBtn" class="close-modal" title="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
+                        viewBox="0 0 256 256">
+                        <path
+                            d="M208.49,191.51a12,12,0,0,1-17,17L128,145,64.49,208.49a12,12,0,0,1-17-17L111,128,47.51,64.49a12,12,0,0,1,17-17L128,111l63.51-63.52a12,12,0,0,1,17,17L145,128Z">
+                        </path>
+                    </svg>
+                </span>
+            </div>
+            <p id="deleteCategoryMessage" class="modal-message"></p>
+            <div class="modal-buttons">
+                <button id="cancelDeleteCategoryBtn">Cancel</button>
+                <button id="confirmDeleteCategoryBtn">Delete</button>
             </div>
         </div>
     </div>

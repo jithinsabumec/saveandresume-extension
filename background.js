@@ -1,4 +1,5 @@
 const AUTH_SUCCESS = 'AUTH_SUCCESS';
+const WELCOME_PAGE_URL = 'https://saveandresume.vercel.app/welcome';
 
 const BREAKING_UPDATES = {
     '2.0.0': {
@@ -13,6 +14,18 @@ try {
 } catch (error) {
     console.error('Failed to load runtime config files.', error);
 }
+
+chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'install') {
+        chrome.tabs.create({
+            url: `${WELCOME_PAGE_URL}?version=${encodeURIComponent(chrome.runtime.getManifest().version)}&ref=install`
+        }, () => {
+            if (chrome.runtime.lastError) {
+                console.warn('Failed to open welcome page after install:', chrome.runtime.lastError.message);
+            }
+        });
+    }
+});
 
 const AUTH_SESSION_KEY = 'authSession';
 
