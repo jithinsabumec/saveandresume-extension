@@ -297,15 +297,12 @@ function triggerShortcutCategoryDialog() {
     const video = document.querySelector('video');
 
     if (!video || !videoId) {
-        console.error('Unable to open category dialog from shortcut: missing video context.');
+        console.error('Unable to save timestamp from shortcut: missing video context.');
         return;
     }
 
     const currentTime = video.currentTime;
-    const thumbnailUrl = getVideoThumbnail(videoId);
-    const cleanedTitle = cleanVideoTitle(videoTitle);
-
-    showCategorySelectionDialog(videoId, cleanedTitle, currentTime, thumbnailUrl);
+    saveVideoToWatchlist(videoId, videoTitle, currentTime);
 }
 
 function isEditableShortcutTarget(target) {
