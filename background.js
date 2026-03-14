@@ -449,26 +449,60 @@ chrome.windows.onRemoved.addListener((windowId) => {
     }
 });
 
-chrome.commands.onCommand.addListener((command) => {
-    if (command === 'add-timestamp') {
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (chrome.runtime.lastError) {
-                console.warn('Unable to query active tab:', chrome.runtime.lastError);
-                return;
-            }
+function isYouTubeWatchTab(tab) {
+    return typeof tab?.url === 'string' && tab.url.includes('://www.youtube.com/watch');
+}
 
-            const activeTabId = tabs?.[0]?.id;
-            if (activeTabId === undefined) {
-                return;
-            }
-
-            chrome.tabs.sendMessage(activeTabId, { action: 'addTimestamp' }, () => {
-                if (chrome.runtime.lastError) {
-                    console.warn('Unable to send addTimestamp command:', chrome.runtime.lastError.message);
-                }
-            });
-        });
+function sendAddTimestampShortcut(targetTab) {
+    if (targetTab?.id === undefined) {
+        console.warn('Add-timestamp shortcut could not find a valid tab id.');
+        return;
     }
+
+    chrome.tabs.sendMessage(targetTab.id, { action: 'addTimestamp' }, () => {
+        if (chrome.runtime.lastError) {
+            console.warn('Unable to send addTimestamp command:', chrome.runtime.lastError.message);
+        }
+    });
+}
+
+chrome.commands.onCommand.addListener((command, tab) => {
+    if (command !== 'add-timestamp') {
+        return;
+    }
+
+    if (isYouTubeWatchTab(tab)) {
+        sendAddTimestampShortcut(tab);
+        return;
+    }
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (focusedTabs) => {
+        if (chrome.runtime.lastError) {
+            console.warn('Unable to query the focused tab for add-timestamp shortcut:', chrome.runtime.lastError);
+            return;
+        }
+
+        const focusedTab = focusedTabs?.[0];
+        if (isYouTubeWatchTab(focusedTab)) {
+            sendAddTimestampShortcut(focusedTab);
+            return;
+        }
+
+        chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+            if (chrome.runtime.lastError) {
+                console.warn('Unable to query active tabs:', chrome.runtime.lastError);
+                return;
+            }
+
+            const activeYouTubeTabs = (tabs || []).filter(isYouTubeWatchTab);
+            if (activeYouTubeTabs.length === 1) {
+                sendAddTimestampShortcut(activeYouTubeTabs[0]);
+                return;
+            }
+
+            console.warn('Add-timestamp shortcut could not find a focused YouTube video tab.');
+        });
+    });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

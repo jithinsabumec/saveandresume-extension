@@ -24,7 +24,7 @@
         "add-timestamp": {
             "suggested_key": {
                 "default": "Alt+S",
-                "mac": "Alt+S"
+                "mac": "Option+S"
             },
             "description": "Add a timestamp to the current video"
         }

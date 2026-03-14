@@ -1223,16 +1223,48 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-document.addEventListener('keydown', (event) => {
+function isAddTimestampShortcut(event) {
+    const code = event.code;
+    const key = typeof event.key === 'string' ? event.key.toLowerCase() : '';
+    const isMac = /mac/i.test(navigator.platform || '');
+
+    if (isMac) {
+        const isLegacyMacShortcut = Boolean(
+            event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            !event.shiftKey &&
+            (code === 'KeyS' || key === 's' || key === 'ß')
+        );
+
+        const isFallbackMacShortcut = Boolean(
+            event.metaKey &&
+            event.shiftKey &&
+            !event.altKey &&
+            !event.ctrlKey &&
+            (code === 'KeyY' || key === 'y')
+        );
+
+        return isLegacyMacShortcut || isFallbackMacShortcut;
+    }
+
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return false;
+    }
+
+    if (code === 'KeyS') {
+        return true;
+    }
+
+    return key === 's' || key === 'ß';
+}
+
+function handleAddTimestampShortcut(event) {
     if (event.defaultPrevented || event.repeat) {
         return;
     }
 
-    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
-        return;
-    }
-
-    if (event.code !== 'KeyS') {
+    if (!isAddTimestampShortcut(event)) {
         return;
     }
 
@@ -1242,4 +1274,7 @@ document.addEventListener('keydown', (event) => {
 
     event.preventDefault();
     triggerShortcutCategoryDialog();
-});
+}
+
+// Listen in the capture phase so YouTube does not swallow the shortcut first.
+window.addEventListener('keydown', handleAddTimestampShortcut, true);
