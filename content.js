@@ -42,6 +42,11 @@ function getVideoThumbnail(videoId) {
 }
 
 const dataClient = globalThis.SaveResumeDataLayer.createClientDataLayer();
+const dataLayerHelpers = globalThis.SaveResumeDataLayer.helpers;
+const createLegacyTimestampEntry = dataLayerHelpers.createLegacyTimestampEntry;
+const appendLegacyTimestampEntry = dataLayerHelpers.appendLegacyTimestampEntry;
+const getLegacyVideoStudyModeState = dataLayerHelpers.getLegacyVideoStudyModeState;
+const resolveLegacyVideoStudyMode = dataLayerHelpers.resolveLegacyVideoStudyMode;
 const CATEGORY_DIALOG_RADIUS = '12px';
 const CATEGORY_FIELD_RADIUS = '8px';
 const CATEGORY_FIELD_HEIGHT = '36px';
@@ -580,7 +585,7 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
         getStudyModePreference()
             .then((globalStudyMode) => {
                 if (existingCategory) {
-                    const effectiveStudyMode = Boolean(globalStudyMode || existingVideo?.studyMode === true);
+                    const effectiveStudyMode = resolveLegacyVideoStudyMode(existingVideo, globalStudyMode);
                     continueSaveForExistingVideo(effectiveStudyMode);
                     return;
                 }
@@ -592,7 +597,7 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
             .catch((error) => {
                 console.error('Failed to read Study Mode preference:', error);
                 if (existingCategory) {
-                    const effectiveStudyMode = existingVideo?.studyMode === true;
+                    const effectiveStudyMode = resolveLegacyVideoStudyMode(existingVideo, false);
                     continueSaveForExistingVideo(effectiveStudyMode);
                     return;
                 }
@@ -1029,29 +1034,33 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
             return;
         }
 
-        const persistTimestamp = (globalStudyMode) => {
+        const persistTimestamp = () => {
             if (!categories[category]) {
                 categories[category] = [];
             }
 
             const existingVideoIndex = categories[category].findIndex((video) => video.videoId === videoId);
-            const newTimestampEntry = {
-                time: currentTime,
-                note: String(note || '').trim(),
-                savedAt: Date.now()
-            };
+            const newTimestampEntry = createLegacyTimestampEntry(currentTime, String(note || '').trim(), Date.now());
             const formattedTime = formatTime(currentTime);
 
             if (existingVideoIndex === -1) {
-                const videoData = {
+                const videoData = appendLegacyTimestampEntry(null, newTimestampEntry, {
                     videoId,
                     title,
                     currentTime,
                     thumbnail: thumbnailUrl,
-                    timestamp: newTimestampEntry.savedAt,
-                    studyMode: globalStudyMode,
-                    timestamps: [newTimestampEntry]
-                };
+                    savedAt: newTimestampEntry.savedAt,
+                    studyMode: false,
+                    studyModeOverridden: false
+                });
+                if (!videoData) {
+                    console.error('Failed to build new timestamp record for save.');
+                    showCustomPopup({
+                        action: 'error',
+                        time: formattedTime
+                    });
+                    return;
+                }
 
                 categories[category].unshift(videoData);
 
@@ -1075,20 +1084,23 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
             }
 
             const existingVideo = categories[category][existingVideoIndex];
-            const effectiveStudyMode = Boolean(globalStudyMode || existingVideo.studyMode === true);
-            existingVideo.timestamps = effectiveStudyMode
-                ? [
-                    ...getNormalizedVideoTimestampEntries(existingVideo),
-                    newTimestampEntry
-                ]
-                : [newTimestampEntry];
-            existingVideo.currentTime = currentTime;
-            existingVideo.timestamp = newTimestampEntry.savedAt;
-            existingVideo.title = title;
-            existingVideo.thumbnail = thumbnailUrl;
-            existingVideo.studyMode = effectiveStudyMode;
+            const persistedStudyModeState = getLegacyVideoStudyModeState(existingVideo);
+            const updatedVideo = appendLegacyTimestampEntry(existingVideo, newTimestampEntry, {
+                title,
+                thumbnail: thumbnailUrl,
+                studyMode: persistedStudyModeState.studyMode,
+                studyModeOverridden: persistedStudyModeState.studyModeOverridden
+            });
+            if (!updatedVideo) {
+                console.error('Failed to update existing timestamp record for save.');
+                showCustomPopup({
+                    action: 'error',
+                    time: formattedTime
+                });
+                return;
+            }
 
-            const updatedVideo = categories[category].splice(existingVideoIndex, 1)[0];
+            categories[category].splice(existingVideoIndex, 1);
             categories[category].unshift(updatedVideo);
 
             setCloudCategories(categories, (saveError) => {
@@ -1109,14 +1121,7 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
             });
         };
 
-        getStudyModePreference()
-            .then((globalStudyMode) => {
-                persistTimestamp(globalStudyMode);
-            })
-            .catch((preferenceError) => {
-                console.error('Failed to read Study Mode preference:', preferenceError);
-                persistTimestamp(false);
-            });
+        persistTimestamp();
     });
 }
 

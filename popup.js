@@ -1,6 +1,9 @@
 let isEditMode = false;
 let pendingCategoryDeletion = null;
 const dataClient = globalThis.SaveResumeDataLayer.createClientDataLayer();
+const dataLayerHelpers = globalThis.SaveResumeDataLayer.helpers;
+const setLegacyVideoStudyMode = dataLayerHelpers.setLegacyVideoStudyMode;
+const resolveLegacyVideoStudyMode = dataLayerHelpers.resolveLegacyVideoStudyMode;
 const PROTECTED_CATEGORY_NAMES = new Set(['Default']);
 const expandedStudyVideos = new Set();
 const PROFILE_PLACEHOLDER_IMAGE = 'profile.png';
@@ -319,7 +322,7 @@ function getLatestTimestampEntry(video) {
 }
 
 function isStudyModeVideo(video, globalStudyMode) {
-    return Boolean(globalStudyMode || video?.studyMode === true);
+    return resolveLegacyVideoStudyMode(video, globalStudyMode);
 }
 
 function setStudyModePillState(pillElement, isOn) {
@@ -704,7 +707,7 @@ function createWatchlistItem(video, category, globalStudyMode) {
         event.stopPropagation();
         toggleDropdown(dropdownMenu);
         populateCategoryOptions(dropdownMenu.querySelector('.category-options'), video);
-        setStudyModePillState(studyModeMenuPill, video.studyMode === true);
+        setStudyModePillState(studyModeMenuPill, isStudyModeVideo(video, globalStudyMode));
         if (dropdownMenu.style.display !== 'block' && activeStudyModeInfoAnchor && dropdownMenu.contains(activeStudyModeInfoAnchor)) {
             hideStudyModeInfoPopover();
         }
@@ -1278,35 +1281,41 @@ function toggleVideoStudyMode(video, category, options = {}) {
     cloudStorage.get(['categories'], function (result) {
         const categories = result.categories || {};
         const videos = Array.isArray(categories[category]) ? categories[category] : [];
-        const targetVideo = videos.find((candidateVideo) => candidateVideo.videoId === video.videoId);
+        const targetVideoIndex = videos.findIndex((candidateVideo) => candidateVideo.videoId === video.videoId);
+        const targetVideo = targetVideoIndex === -1 ? null : videos[targetVideoIndex];
 
         if (!targetVideo) {
             return;
         }
 
-        const latestTimestampEntry = getLatestTimestampEntry(targetVideo);
-        targetVideo.studyMode = targetVideo.studyMode !== true;
-
-        if (latestTimestampEntry) {
-            targetVideo.currentTime = latestTimestampEntry.time;
-            targetVideo.timestamp = latestTimestampEntry.savedAt;
-        }
-
-        const activeCategory = getActiveCategoryFilter();
-        cloudStorage.set({ categories }, function () {
-            filterByCategory(activeCategory, () => {
-                if (!keepMenuOpen) {
+        getStudyMode()
+            .then((globalStudyMode) => {
+                const currentStudyMode = resolveLegacyVideoStudyMode(targetVideo, globalStudyMode);
+                const updatedVideo = setLegacyVideoStudyMode(targetVideo, !currentStudyMode);
+                if (!updatedVideo) {
                     return;
                 }
+                videos[targetVideoIndex] = updatedVideo;
 
-                const escapedVideoId = escapeForAttributeSelector(video.videoId);
-                const targetListItem = document.querySelector(`.watchlist-item[data-video-id="${escapedVideoId}"]`);
-                const targetThreeDotMenu = targetListItem?.querySelector('.three-dot-menu');
-                if (targetThreeDotMenu) {
-                    targetThreeDotMenu.click();
-                }
+                const activeCategory = getActiveCategoryFilter();
+                cloudStorage.set({ categories }, function () {
+                    filterByCategory(activeCategory, () => {
+                        if (!keepMenuOpen) {
+                            return;
+                        }
+
+                        const escapedVideoId = escapeForAttributeSelector(video.videoId);
+                        const targetListItem = document.querySelector(`.watchlist-item[data-video-id="${escapedVideoId}"]`);
+                        const targetThreeDotMenu = targetListItem?.querySelector('.three-dot-menu');
+                        if (targetThreeDotMenu) {
+                            targetThreeDotMenu.click();
+                        }
+                    });
+                });
+            })
+            .catch((error) => {
+                console.error('Failed to read Study Mode preference while updating a video:', error);
             });
-        });
     });
 }
 

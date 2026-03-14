@@ -1,5 +1,7 @@
 const AUTH_SUCCESS = 'AUTH_SUCCESS';
 const WELCOME_PAGE_URL = 'https://saveandresume.vercel.app/welcome';
+const STUDY_MODE_PAGE_URL = 'https://saveandresume.vercel.app/study-mode';
+const STUDY_MODE_UPDATE_VERSION = '1.3.0';
 
 const BREAKING_UPDATES = {
     '2.0.0': {
@@ -15,15 +17,34 @@ try {
     console.error('Failed to load runtime config files.', error);
 }
 
+function openExtensionPage(url, failureMessage) {
+    chrome.tabs.create({ url }, () => {
+        if (chrome.runtime.lastError) {
+            console.warn(failureMessage, chrome.runtime.lastError.message);
+        }
+    });
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
+    const currentVersion = chrome.runtime.getManifest().version;
+
     if (details.reason === 'install') {
-        chrome.tabs.create({
-            url: `${WELCOME_PAGE_URL}?version=${encodeURIComponent(chrome.runtime.getManifest().version)}&ref=install`
-        }, () => {
-            if (chrome.runtime.lastError) {
-                console.warn('Failed to open welcome page after install:', chrome.runtime.lastError.message);
-            }
-        });
+        openExtensionPage(
+            `${WELCOME_PAGE_URL}?version=${encodeURIComponent(currentVersion)}&ref=install`,
+            'Failed to open welcome page after install:'
+        );
+        return;
+    }
+
+    if (
+        details.reason === 'update' &&
+        currentVersion === STUDY_MODE_UPDATE_VERSION &&
+        details.previousVersion !== STUDY_MODE_UPDATE_VERSION
+    ) {
+        openExtensionPage(
+            STUDY_MODE_PAGE_URL,
+            `Failed to open study mode page after update to ${STUDY_MODE_UPDATE_VERSION}:`
+        );
     }
 });
 

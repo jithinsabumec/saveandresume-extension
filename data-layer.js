@@ -70,6 +70,136 @@
         }, null);
     }
 
+    function normalizeLegacyVideoItem(video) {
+        if (!isObject(video)) {
+            return null;
+        }
+
+        if (typeof video.videoId !== 'string' || video.videoId.trim() === '') {
+            return null;
+        }
+
+        const fallbackTime = Math.max(0, toNumber(video.currentTime, 0));
+        const fallbackSavedAt = Math.max(0, toNumber(video.timestamp, Date.now()));
+        const normalizedTimestampEntries = normalizeStudyTimestampEntries(video.timestamps, fallbackTime, fallbackSavedAt);
+        const latestTimestampEntry = getMostRecentStudyTimestampEntry(normalizedTimestampEntries, fallbackTime, fallbackSavedAt);
+
+        return {
+            videoId: video.videoId,
+            title: typeof video.title === 'string' ? video.title : '',
+            currentTime: latestTimestampEntry.time,
+            thumbnail: typeof video.thumbnail === 'string' ? video.thumbnail : '',
+            timestamp: latestTimestampEntry.savedAt,
+            studyMode: video.studyMode === true,
+            studyModeOverridden: video.studyModeOverridden === true,
+            timestamps: normalizedTimestampEntries
+        };
+    }
+
+    function createLegacyTimestampEntry(time, note = '', savedAt = Date.now()) {
+        return normalizeStudyTimestampEntry({ time, note, savedAt }, time, savedAt);
+    }
+
+    function appendLegacyTimestampEntry(video, entry, overrides = {}) {
+        const normalizedVideo = normalizeLegacyVideoItem(video);
+        const fallbackSavedAt = Math.max(0, toNumber(overrides.savedAt, Date.now()));
+        const baseVideo = normalizedVideo || (
+            typeof overrides.videoId === 'string' && overrides.videoId.trim() !== ''
+                ? {
+                    videoId: overrides.videoId,
+                    title: typeof overrides.title === 'string' ? overrides.title : '',
+                    currentTime: Math.max(0, toNumber(overrides.currentTime, 0)),
+                    thumbnail: typeof overrides.thumbnail === 'string' ? overrides.thumbnail : '',
+                    timestamp: fallbackSavedAt,
+                    studyMode: overrides.studyMode === true,
+                    studyModeOverridden: overrides.studyModeOverridden === true,
+                    timestamps: []
+                }
+                : null
+        );
+
+        if (!baseVideo) {
+            return null;
+        }
+
+        const normalizedEntry = normalizeStudyTimestampEntry(
+            entry,
+            overrides.currentTime ?? baseVideo.currentTime,
+            overrides.savedAt ?? baseVideo.timestamp
+        );
+        const mergedTimestamps = [
+            ...(normalizedVideo
+                ? normalizeStudyTimestampEntries(
+                    normalizedVideo.timestamps,
+                    normalizedVideo.currentTime,
+                    normalizedVideo.timestamp
+                )
+                : []),
+            normalizedEntry
+        ];
+        const latestTimestampEntry = getMostRecentStudyTimestampEntry(
+            mergedTimestamps,
+            normalizedEntry.time,
+            normalizedEntry.savedAt
+        );
+
+        return {
+            videoId: baseVideo.videoId,
+            title: typeof overrides.title === 'string' ? overrides.title : baseVideo.title,
+            currentTime: latestTimestampEntry.time,
+            thumbnail: typeof overrides.thumbnail === 'string' ? overrides.thumbnail : baseVideo.thumbnail,
+            timestamp: latestTimestampEntry.savedAt,
+            studyMode: Object.prototype.hasOwnProperty.call(overrides, 'studyMode')
+                ? overrides.studyMode === true
+                : baseVideo.studyMode === true,
+            studyModeOverridden: Object.prototype.hasOwnProperty.call(overrides, 'studyModeOverridden')
+                ? overrides.studyModeOverridden === true
+                : baseVideo.studyModeOverridden === true,
+            timestamps: mergedTimestamps
+        };
+    }
+
+    function setLegacyVideoStudyMode(video, studyMode) {
+        const normalizedVideo = normalizeLegacyVideoItem(video);
+        if (!normalizedVideo) {
+            return null;
+        }
+
+        return {
+            ...normalizedVideo,
+            studyMode: studyMode === true,
+            studyModeOverridden: true
+        };
+    }
+
+    function getLegacyVideoStudyModeState(video) {
+        const normalizedVideo = normalizeLegacyVideoItem(video);
+        if (!normalizedVideo || normalizedVideo.studyModeOverridden !== true) {
+            return {
+                studyMode: false,
+                studyModeOverridden: false
+            };
+        }
+
+        return {
+            studyMode: normalizedVideo.studyMode === true,
+            studyModeOverridden: true
+        };
+    }
+
+    function resolveLegacyVideoStudyMode(video, globalStudyMode = false) {
+        const normalizedVideo = normalizeLegacyVideoItem(video);
+        if (!normalizedVideo) {
+            return globalStudyMode === true;
+        }
+
+        if (normalizedVideo.studyModeOverridden === true) {
+            return normalizedVideo.studyMode === true;
+        }
+
+        return globalStudyMode === true;
+    }
+
     function clone(value) {
         return JSON.parse(JSON.stringify(value));
     }
@@ -138,6 +268,7 @@
             thumbnail: typeof record.thumbnail === 'string' ? record.thumbnail : '',
             syncPending: record.syncPending === true,
             studyMode: record.studyMode === true,
+            studyModeOverridden: record.studyModeOverridden === true,
             timestamps: normalizedTimestampEntries
         };
     }
@@ -214,29 +345,22 @@
     }
 
     function normalizeLegacyVideo(video) {
-        if (!isObject(video)) {
+        const normalizedVideo = normalizeLegacyVideoItem(video);
+        if (!normalizedVideo) {
             return null;
         }
-
-        if (typeof video.videoId !== 'string' || video.videoId.trim() === '') {
-            return null;
-        }
-
-        const timestamp = Math.max(0, toNumber(video.currentTime, 0));
-        const savedAt = Math.max(0, toNumber(video.timestamp, Date.now()));
-        const normalizedTimestampEntries = normalizeStudyTimestampEntries(video.timestamps, timestamp, savedAt);
-        const latestTimestampEntry = getMostRecentStudyTimestampEntry(normalizedTimestampEntries, timestamp, savedAt);
 
         return {
-            videoId: video.videoId,
+            videoId: normalizedVideo.videoId,
             record: {
-                timestamp: Math.max(0, toNumber(video.currentTime, latestTimestampEntry.time)),
-                title: typeof video.title === 'string' ? video.title : '',
-                savedAt: Math.max(0, toNumber(video.timestamp, latestTimestampEntry.savedAt)),
-                thumbnail: typeof video.thumbnail === 'string' ? video.thumbnail : '',
+                timestamp: Math.max(0, toNumber(normalizedVideo.currentTime, 0)),
+                title: normalizedVideo.title,
+                savedAt: Math.max(0, toNumber(normalizedVideo.timestamp, Date.now())),
+                thumbnail: normalizedVideo.thumbnail,
                 syncPending: false,
-                studyMode: video.studyMode === true,
-                timestamps: normalizedTimestampEntries
+                studyMode: normalizedVideo.studyMode === true,
+                studyModeOverridden: normalizedVideo.studyModeOverridden === true,
+                timestamps: normalizedVideo.timestamps
             }
         };
     }
@@ -317,6 +441,7 @@
                     thumbnail: typeof record.thumbnail === 'string' ? record.thumbnail : '',
                     timestamp: toNumber(record.savedAt, Date.now()),
                     studyMode: record.studyMode === true,
+                    studyModeOverridden: record.studyModeOverridden === true,
                     timestamps: Array.isArray(record.timestamps)
                         ? record.timestamps.map((entry) => ({
                             time: Math.max(0, toNumber(entry.time, 0)),
@@ -1090,6 +1215,12 @@
         createBackgroundDataLayer,
         helpers: {
             normalizeLocalSchema,
+            normalizeLegacyVideoItem,
+            createLegacyTimestampEntry,
+            appendLegacyTimestampEntry,
+            getLegacyVideoStudyModeState,
+            resolveLegacyVideoStudyMode,
+            setLegacyVideoStudyMode,
             mapLegacyCategoriesToLocal,
             mapLocalToLegacyCategories,
             mergeRemoteWithLocalForMigration,
