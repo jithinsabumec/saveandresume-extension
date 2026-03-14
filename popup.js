@@ -10,22 +10,26 @@ const PROFILE_PLACEHOLDER_IMAGE = 'profile.png';
 let closeProfileDropdownHandler = null;
 let activeStudyModeInfoAnchor = null;
 let infoPopoverOutsideClickHandler = null;
+let infoPopoverHideTimer = null;
 
 const STUDY_MODE_GLOBAL_INFO_COPY = Object.freeze({
-    title: 'What is Study Mode?',
-    body: 'Study Mode transforms any video card into a research card. Instead of a single resume timestamp, you can save multiple moments in a video and add a personal note to each one. Use it when you are learning something, doing research, or want to remember why a specific moment in a video mattered to you.',
+    title: 'Default to Study Mode',
+    body: 'When this is on, every new video you save will automatically be in Study Mode. That means you can save multiple timestamps and add notes from the moment you first save a video. Videos you have already saved are not affected - they keep their current mode.',
     examples: [
-        'Watching a tutorial? Mark every concept you want to revisit later.',
-        'In a research session? Add your thoughts at each key moment.'
+        'Doing a research session? Turn this on before you start and every video you save will be ready for notes.',
+        'Just resuming a show? Leave this off and save individual videos to Study Mode as needed.'
     ],
-    footer: 'You can switch Study Mode off at any time. Your timestamps and notes are always kept safe.'
+    footer: 'You can always switch any individual video in or out of Study Mode using its three-dot menu.'
 });
 
 const STUDY_MODE_VIDEO_INFO_COPY = Object.freeze({
     title: 'Study Mode for this video',
-    body: 'Turning on Study Mode for this video lets you save multiple timestamps and add notes to each one - just for this video. Other videos stay in Resume Mode unless you turn on Study Mode globally from your profile.',
-    examples: [],
-    footer: 'Turning Study Mode off later will not delete your timestamps or notes. Everything is saved and will come back if you switch it on again.'
+    body: 'Turning this on lets you save multiple timestamps and add notes to each one - just for this video. It does not affect any other video in your list.',
+    examples: [
+        'This overrides the global default. If your default is set to off, you can still turn Study Mode on for individual videos you want to research.',
+        'Turning Study Mode off for this video will not delete your timestamps or notes. Everything is preserved and will come back if you switch it on again.'
+    ],
+    footer: 'To set Study Mode as the default for all new saves, use the Default to Study Mode toggle in your profile menu.'
 });
 
 function runtimeRequest(message) {
@@ -114,6 +118,11 @@ function escapeHtml(value) {
 }
 
 function hideStudyModeInfoPopover() {
+    if (infoPopoverHideTimer) {
+        clearTimeout(infoPopoverHideTimer);
+        infoPopoverHideTimer = null;
+    }
+
     const existing = document.getElementById('study-mode-info-popover');
     if (existing) {
         existing.remove();
@@ -152,12 +161,12 @@ function positionInfoPopover(anchorElement, popover) {
 }
 
 function showInfoPopover(anchorElement, title, bodyText, examples, footerText) {
-    const existing = document.getElementById('study-mode-info-popover');
-    const shouldToggleOff = Boolean(existing && activeStudyModeInfoAnchor === anchorElement);
-    hideStudyModeInfoPopover();
-    if (shouldToggleOff) {
-        return;
+    if (infoPopoverHideTimer) {
+        clearTimeout(infoPopoverHideTimer);
+        infoPopoverHideTimer = null;
     }
+
+    hideStudyModeInfoPopover();
 
     const popover = document.createElement('div');
     popover.id = 'study-mode-info-popover';
@@ -189,6 +198,25 @@ function showInfoPopover(anchorElement, title, bodyText, examples, footerText) {
     document.body.appendChild(popover);
     positionInfoPopover(anchorElement, popover);
 
+    const scheduleHide = () => {
+        if (infoPopoverHideTimer) {
+            clearTimeout(infoPopoverHideTimer);
+        }
+        infoPopoverHideTimer = setTimeout(() => {
+            hideStudyModeInfoPopover();
+        }, 140);
+    };
+
+    const cancelHide = () => {
+        if (infoPopoverHideTimer) {
+            clearTimeout(infoPopoverHideTimer);
+            infoPopoverHideTimer = null;
+        }
+    };
+
+    popover.addEventListener('mouseenter', cancelHide);
+    popover.addEventListener('mouseleave', scheduleHide);
+
     activeStudyModeInfoAnchor = anchorElement;
     infoPopoverOutsideClickHandler = (event) => {
         if (popover.contains(event.target)) {
@@ -208,15 +236,37 @@ function bindStudyModeInfoButton(infoButton, copy) {
     }
 
     const openInfoPopover = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
         showInfoPopover(infoButton, copy.title, copy.body, copy.examples, copy.footer);
     };
 
-    infoButton.addEventListener('click', openInfoPopover);
+    const scheduleHide = () => {
+        if (infoPopoverHideTimer) {
+            clearTimeout(infoPopoverHideTimer);
+        }
+        infoPopoverHideTimer = setTimeout(() => {
+            hideStudyModeInfoPopover();
+        }, 140);
+    };
+
+    infoButton.addEventListener('mouseenter', openInfoPopover);
+    infoButton.addEventListener('mouseleave', scheduleHide);
+    infoButton.addEventListener('focus', openInfoPopover);
+    infoButton.addEventListener('blur', scheduleHide);
+    infoButton.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+    });
+    infoButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+    });
     infoButton.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
             openInfoPopover(event);
+        }
+        if (event.key === 'Escape') {
+            hideStudyModeInfoPopover();
         }
     });
 }
@@ -1741,6 +1791,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     async function toggleGlobalStudyMode() {
+        // "Default to Study Mode" sets the starting state for NEW video saves only.
+        // It does not retroactively change the studyMode flag on existing video objects.
+        // Per-video studyMode flags are always the source of truth for each card's render state.
         const nextValue = !(await getStudyMode());
         await setStudyMode(nextValue);
         await syncStudyModePills();
