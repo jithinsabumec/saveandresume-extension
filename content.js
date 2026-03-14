@@ -412,7 +412,7 @@ function showCustomPopup(data) {
             border: 1px solid #292929;
             color: white;
             padding: 12px 16px;
-            border-radius: 4px;
+            border-radius: 8px;
             display: flex;
             align-items: center;
             gap: 12px;

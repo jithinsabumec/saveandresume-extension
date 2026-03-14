@@ -421,6 +421,12 @@ function activateInlineNoteEdit(noteElement, category, videoId, savedAt) {
     input.addEventListener('keydown', (event) => {
         event.stopPropagation();
 
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            restoreDisplay(input.value, true);
+            return;
+        }
+
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
             restoreDisplay(input.value, true);
