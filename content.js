@@ -45,6 +45,10 @@ const dataClient = globalThis.SaveResumeDataLayer.createClientDataLayer();
 const CATEGORY_DIALOG_RADIUS = '12px';
 const CATEGORY_FIELD_RADIUS = '8px';
 const CATEGORY_FIELD_HEIGHT = '36px';
+const PRIMARY_FONT_FAMILY = "'Saans', sans-serif";
+const MONO_FONT_FAMILY = "'Space Mono', monospace";
+const SPACE_MONO_LINK_ID = 'save-resume-space-mono-font';
+const SAANS_FONT_STYLE_ID = 'save-resume-saans-font';
 
 function applyCategoryFieldStyles(element) {
     element.style.width = '100%';
@@ -57,10 +61,54 @@ function applyCategoryFieldStyles(element) {
     element.style.color = '#ffffff';
     element.style.fontSize = '14px';
     element.style.fontWeight = '500';
-    element.style.fontFamily = 'Manrope, sans-serif';
+    element.style.fontFamily = PRIMARY_FONT_FAMILY;
     element.style.boxSizing = 'border-box';
     element.style.outline = 'none';
     element.style.boxShadow = 'none';
+}
+
+function applyDialogCheckboxStyles(checkbox) {
+    checkbox.style.appearance = 'none';
+    checkbox.style.webkitAppearance = 'none';
+    checkbox.style.margin = '0';
+    checkbox.style.width = '16px';
+    checkbox.style.height = '16px';
+    checkbox.style.minWidth = '16px';
+    checkbox.style.border = '1px solid #3C3C3C';
+    checkbox.style.borderRadius = '5px';
+    checkbox.style.backgroundColor = '#191919';
+    checkbox.style.display = 'inline-flex';
+    checkbox.style.alignItems = 'center';
+    checkbox.style.justifyContent = 'center';
+    checkbox.style.cursor = 'pointer';
+    checkbox.style.boxSizing = 'border-box';
+    checkbox.style.transition = 'background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease';
+    checkbox.style.outline = 'none';
+    checkbox.style.backgroundRepeat = 'no-repeat';
+    checkbox.style.backgroundPosition = 'center';
+    checkbox.style.backgroundSize = '10px 10px';
+
+    const setCheckboxVisualState = () => {
+        if (checkbox.checked) {
+            checkbox.style.backgroundColor = '#781D2F';
+            checkbox.style.borderColor = '#ED1A43';
+            checkbox.style.backgroundImage = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='8' viewBox='0 0 10 8'%3E%3Cpath fill='%23FFFFFF' d='M3.6 7.2L.4 4 .9 3.5 3.6 6.2 9.1.7l.5.5z'/%3E%3C/svg%3E")`;
+        } else {
+            checkbox.style.backgroundColor = '#191919';
+            checkbox.style.borderColor = '#3C3C3C';
+            checkbox.style.backgroundImage = 'none';
+        }
+    };
+
+    checkbox.addEventListener('change', setCheckboxVisualState);
+    checkbox.addEventListener('focus', () => {
+        checkbox.style.boxShadow = '0 0 0 2px rgba(237, 26, 67, 0.25)';
+    });
+    checkbox.addEventListener('blur', () => {
+        checkbox.style.boxShadow = 'none';
+    });
+
+    setCheckboxVisualState();
 }
 
 function getCloudCategories(callback) {
@@ -79,12 +127,252 @@ function setCloudCategories(categories, callback) {
         });
 }
 
+function getLocalBooleanPreference(key, fallback) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get([key], (result) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+
+            if (!Object.prototype.hasOwnProperty.call(result, key)) {
+                resolve(Boolean(fallback));
+                return;
+            }
+
+            resolve(result[key] === true);
+        });
+    });
+}
+
+function setLocalBooleanPreference(key, value) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.set({ [key]: Boolean(value) }, () => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+
+            resolve(Boolean(value));
+        });
+    });
+}
+
+function getStudyModePreference() {
+    return getLocalBooleanPreference('studyMode', false);
+}
+
+function getShowNotesModalPreference() {
+    return getLocalBooleanPreference('showNotesModal', true);
+}
+
+function setShowNotesModalPreference(value) {
+    return setLocalBooleanPreference('showNotesModal', value);
+}
+
+function getNormalizedVideoTimestampEntries(video) {
+    const fallbackTime = Math.max(0, Number(video?.currentTime) || 0);
+    const fallbackSavedAt = Math.max(0, Number(video?.timestamp) || Date.now());
+    const rawEntries = Array.isArray(video?.timestamps) && video.timestamps.length > 0
+        ? video.timestamps
+        : [{ time: fallbackTime, note: '', savedAt: fallbackSavedAt }];
+
+    return rawEntries.map((entry) => ({
+        time: Math.max(0, Number(entry?.time) || 0),
+        note: typeof entry?.note === 'string' ? entry.note : '',
+        savedAt: Math.max(0, Number(entry?.savedAt) || fallbackSavedAt)
+    }));
+}
+
+function ensureDialogFontsLoaded() {
+    if (isExtensionContextValid() && !document.getElementById(SAANS_FONT_STYLE_ID)) {
+        const saansFontStyle = document.createElement('style');
+        saansFontStyle.id = SAANS_FONT_STYLE_ID;
+        saansFontStyle.textContent = `
+            @font-face {
+                font-family: 'Saans';
+                src: url('${chrome.runtime.getURL('SaansCollectionVF-TRIAL.ttf')}') format('truetype');
+                font-style: normal;
+                font-weight: 100 900;
+                font-display: swap;
+            }
+        `;
+        document.head.appendChild(saansFontStyle);
+    }
+
+    if (!document.getElementById(SPACE_MONO_LINK_ID)) {
+        const fontLink = document.createElement('link');
+        fontLink.id = SPACE_MONO_LINK_ID;
+        fontLink.rel = 'stylesheet';
+        fontLink.href = 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap';
+        document.head.appendChild(fontLink);
+    }
+}
+
+function createDialogScaffold(dialogTitle, onClose) {
+    const existingDialog = document.getElementById('category-selection-dialog');
+    const existingBackdrop = document.getElementById('category-selection-backdrop');
+    if (existingDialog) existingDialog.remove();
+    if (existingBackdrop) existingBackdrop.remove();
+
+    ensureDialogFontsLoaded();
+
+    const dialog = document.createElement('div');
+    dialog.id = 'category-selection-dialog';
+    dialog.style.position = 'fixed';
+    dialog.style.top = '50%';
+    dialog.style.left = '50%';
+    dialog.style.transform = 'translate(-50%, -50%)';
+    dialog.style.width = '350px';
+    dialog.style.maxHeight = '400px';
+    dialog.style.backgroundColor = '#191919';
+    dialog.style.borderRadius = CATEGORY_DIALOG_RADIUS;
+    dialog.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.5)';
+    dialog.style.padding = '16px';
+    dialog.style.zIndex = '10000';
+    dialog.style.color = '#ffffff';
+    dialog.style.fontFamily = PRIMARY_FONT_FAMILY;
+    dialog.style.display = 'flex';
+    dialog.style.flexDirection = 'column';
+    dialog.style.gap = '16px';
+
+    const backdrop = document.createElement('div');
+    backdrop.id = 'category-selection-backdrop';
+    backdrop.style.position = 'fixed';
+    backdrop.style.top = '0';
+    backdrop.style.left = '0';
+    backdrop.style.right = '0';
+    backdrop.style.bottom = '0';
+    backdrop.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    backdrop.style.zIndex = '9999';
+
+    const closeDialog = () => {
+        if (typeof onClose === 'function') {
+            onClose();
+        }
+        dialog.remove();
+        backdrop.remove();
+    };
+
+    backdrop.onclick = (event) => {
+        if (event.target === backdrop) {
+            closeDialog();
+        }
+    };
+
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+
+    const headerTitle = document.createElement('h3');
+    headerTitle.textContent = dialogTitle;
+    headerTitle.style.margin = '0';
+    headerTitle.style.fontSize = '18px';
+    headerTitle.style.fontWeight = '500';
+    headerTitle.style.fontFamily = PRIMARY_FONT_FAMILY;
+
+    const closeButton = document.createElement('button');
+    closeButton.innerHTML = '&times;';
+    closeButton.style.background = 'none';
+    closeButton.style.border = 'none';
+    closeButton.style.fontSize = '24px';
+    closeButton.style.color = '#7C7C7C';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.padding = '0';
+    closeButton.onclick = closeDialog;
+
+    header.appendChild(headerTitle);
+    header.appendChild(closeButton);
+    dialog.appendChild(header);
+
+    return { dialog, backdrop, closeDialog };
+}
+
+function createTimestampInfoCard(title, currentTime, thumbnailUrl) {
+    const timestampInfo = document.createElement('div');
+    timestampInfo.style.backgroundColor = '#191919';
+    timestampInfo.style.padding = '8px';
+    timestampInfo.style.borderRadius = '8px';
+    timestampInfo.style.display = 'flex';
+    timestampInfo.style.alignItems = 'center';
+    timestampInfo.style.gap = '12px';
+    timestampInfo.style.border = '1px solid #2D2D2D';
+
+    const thumbnailImg = document.createElement('img');
+    thumbnailImg.src = thumbnailUrl;
+    thumbnailImg.style.width = '100px';
+    thumbnailImg.style.height = '56px';
+    thumbnailImg.style.borderRadius = '6px';
+    thumbnailImg.style.objectFit = 'cover';
+
+    const infoText = document.createElement('div');
+    infoText.style.display = 'flex';
+    infoText.style.flexDirection = 'column';
+    infoText.style.gap = '4px';
+    infoText.style.flex = '1';
+    infoText.style.minWidth = '0';
+
+    const titleText = document.createElement('div');
+    titleText.textContent = title;
+    titleText.style.fontSize = '14px';
+    titleText.style.fontWeight = '500';
+    titleText.style.color = '#ffffff';
+    titleText.style.lineHeight = '1.4';
+    titleText.style.overflow = 'hidden';
+    titleText.style.display = '-webkit-box';
+    titleText.style.webkitLineClamp = '2';
+    titleText.style.webkitBoxOrient = 'vertical';
+    titleText.style.textOverflow = 'ellipsis';
+    titleText.style.fontFamily = PRIMARY_FONT_FAMILY;
+
+    const timeText = document.createElement('div');
+    timeText.style.display = 'flex';
+    timeText.style.alignItems = 'center';
+    timeText.style.gap = '4px';
+
+    if (isExtensionContextValid()) {
+        const timestampIcon = document.createElement('img');
+        timestampIcon.src = chrome.runtime.getURL('timestamp.svg');
+        timestampIcon.alt = 'Timestamp';
+        timestampIcon.style.width = '12px';
+        timestampIcon.style.height = '12px';
+        timestampIcon.style.display = 'block';
+        timeText.appendChild(timestampIcon);
+    }
+
+    const timeValue = document.createElement('span');
+    timeValue.textContent = formatTime(currentTime);
+    timeValue.style.fontFamily = MONO_FONT_FAMILY;
+    timeValue.style.fontSize = '12px';
+    timeValue.style.fontWeight = '400';
+    timeValue.style.color = '#7C7C7C';
+    timeText.appendChild(timeValue);
+
+    infoText.appendChild(titleText);
+    infoText.appendChild(timeText);
+    timestampInfo.appendChild(thumbnailImg);
+    timestampInfo.appendChild(infoText);
+
+    return timestampInfo;
+}
+
+function createNotesInputField(placeholderText) {
+    const notesInput = document.createElement('input');
+    notesInput.type = 'text';
+    notesInput.placeholder = placeholderText;
+    applyCategoryFieldStyles(notesInput);
+    return notesInput;
+}
+
 // Function to create and show custom popup
 function showCustomPopup(data) {
     if (!isExtensionContextValid()) {
         handleContextInvalidation();
         return;
     }
+
+    ensureDialogFontsLoaded();
 
     // Remove existing popup if any
     const existingPopup = document.getElementById('yt-watchlist-popup');
@@ -111,8 +399,6 @@ function showCustomPopup(data) {
         style = document.createElement('style');
         style.id = popupStyleId;
         style.textContent = `
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap');
-
         #yt-watchlist-popup {
             position: fixed;
             top: 20px;
@@ -142,7 +428,7 @@ function showCustomPopup(data) {
         }
 
         #yt-watchlist-popup .popup-label {
-            font-family: 'Manrope', sans-serif;
+            font-family: ${PRIMARY_FONT_FAMILY};
             font-weight: 400;
             color: #AAAAAA;
             font-size: 16px;
@@ -150,7 +436,7 @@ function showCustomPopup(data) {
         }
 
         #yt-watchlist-popup .popup-time {
-            font-family: 'Space Mono', monospace;
+            font-family: ${MONO_FONT_FAMILY};
             color: #ffffff;
             font-size: 24px;
             line-height: 1.2;
@@ -212,7 +498,7 @@ function handleContextInvalidation() {
         color: white;
         padding: 12px 16px;
         border-radius: 4px;
-        font-family: 'Manrope', sans-serif;
+        font-family: ${PRIMARY_FONT_FAMILY};
         font-size: 14px;
         z-index: 10001;
         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
@@ -240,15 +526,17 @@ function findVideoCategory(videoId, callback) {
         }
 
         let foundCategory = null;
+        let foundVideo = null;
 
         for (const category in categories) {
             const index = categories[category].findIndex(video => video.videoId === videoId);
             if (index !== -1) {
                 foundCategory = category;
+                foundVideo = categories[category][index];
                 break;
             }
         }
-        callback(foundCategory);
+        callback(foundCategory, foundVideo);
     });
 }
 
@@ -265,16 +553,51 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
     const cleanedTitle = cleanVideoTitle(currentTitle);
 
     // Check if video already exists in any category
-    findVideoCategory(currentVideoId, (existingCategory) => {
-        if (existingCategory) {
-            // Video exists, update timestamp directly without showing dialog
+    findVideoCategory(currentVideoId, (existingCategory, existingVideo) => {
+        const continueSaveForExistingVideo = (effectiveStudyMode) => {
             console.log(`Video ${currentVideoId} found in category ${existingCategory}. Updating timestamp.`);
-            saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory);
-        } else {
-            // Video is new, show category selection dialog
-            console.log(`Video ${currentVideoId} not found. Showing category dialog.`);
-            showCategorySelectionDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl);
-        }
+
+            if (!effectiveStudyMode) {
+                saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '');
+                return;
+            }
+
+            getShowNotesModalPreference()
+                .then((shouldShowNotesModal) => {
+                    if (shouldShowNotesModal) {
+                        showRepeatSaveDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory);
+                        return;
+                    }
+
+                    saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '');
+                })
+                .catch((error) => {
+                    console.error('Failed to read showNotesModal preference:', error);
+                    saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '');
+                });
+        };
+
+        getStudyModePreference()
+            .then((globalStudyMode) => {
+                if (existingCategory) {
+                    const effectiveStudyMode = Boolean(globalStudyMode || existingVideo?.studyMode === true);
+                    continueSaveForExistingVideo(effectiveStudyMode);
+                    return;
+                }
+
+                // Video is new, show category selection dialog
+                console.log(`Video ${currentVideoId} not found. Showing category dialog.`);
+                showCategorySelectionDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, globalStudyMode);
+            })
+            .catch((error) => {
+                console.error('Failed to read Study Mode preference:', error);
+                if (existingCategory) {
+                    const effectiveStudyMode = existingVideo?.studyMode === true;
+                    continueSaveForExistingVideo(effectiveStudyMode);
+                    return;
+                }
+                showCategorySelectionDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, false);
+            });
     });
 }
 
@@ -315,169 +638,22 @@ function isEditableShortcutTarget(target) {
 }
 
 // Function to show category selection dialog
-function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) {
-    // Remove existing dialog and backdrop if any
-    const existingDialog = document.getElementById('category-selection-dialog');
-    const existingBackdrop = document.getElementById('category-selection-backdrop');
-    if (existingDialog) existingDialog.remove();
-    if (existingBackdrop) existingBackdrop.remove();
-
-    // Create dialog container
-    const dialog = document.createElement('div');
-    dialog.id = 'category-selection-dialog';
-    dialog.style.position = 'fixed';
-    dialog.style.top = '50%';
-    dialog.style.left = '50%';
-    dialog.style.transform = 'translate(-50%, -50%)';
-    dialog.style.width = '350px';
-    dialog.style.maxHeight = '400px';
-    dialog.style.backgroundColor = '#191919';
-    dialog.style.borderRadius = CATEGORY_DIALOG_RADIUS;
-    dialog.style.boxShadow = '0 2px 10px rgba(0, 0, 0, 0.5)';
-    dialog.style.padding = '20px';
-    dialog.style.zIndex = '10000';
-    dialog.style.color = '#ffffff';
-    dialog.style.fontFamily = 'Manrope, sans-serif';
-    dialog.style.display = 'flex';
-    dialog.style.flexDirection = 'column';
-    dialog.style.gap = '16px';
-
-    // Add fonts once and reuse.
-    const fontLinkId = 'save-resume-fonts';
-    if (!document.getElementById(fontLinkId)) {
-        const fontLink = document.createElement('link');
-        fontLink.id = fontLinkId;
-        fontLink.rel = 'stylesheet';
-        fontLink.href = 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Manrope:wght@400;500;600&display=swap';
-        document.head.appendChild(fontLink);
+async function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl, globalStudyMode = false) {
+    if (!isExtensionContextValid()) {
+        handleContextInvalidation();
+        return;
     }
 
-    // Add backdrop
-    const backdrop = document.createElement('div');
-    backdrop.id = 'category-selection-backdrop'; // Give backdrop an ID
-    backdrop.style.position = 'fixed';
-    backdrop.style.top = '0';
-    backdrop.style.left = '0';
-    backdrop.style.right = '0';
-    backdrop.style.bottom = '0';
-    backdrop.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-    backdrop.style.zIndex = '9999';
-
-    // Get formatted time for display
-    const formattedTime = formatTime(currentTime);
-
-    // Helper function to close dialog and backdrop
     let removeCategoryDropdownDocumentListener = null;
-    const closeDialog = () => {
+    const { dialog, backdrop, closeDialog } = createDialogScaffold('Assign Category', () => {
         if (removeCategoryDropdownDocumentListener) {
             document.removeEventListener('click', removeCategoryDropdownDocumentListener);
             removeCategoryDropdownDocumentListener = null;
         }
-        dialog.remove();
-        backdrop.remove();
-    };
+    });
 
-    backdrop.onclick = (e) => {
-        if (e.target === backdrop) {
-            closeDialog();
-        }
-    };
+    dialog.appendChild(createTimestampInfoCard(title, currentTime, thumbnailUrl));
 
-    // Create dialog header
-    const header = document.createElement('div');
-    header.style.display = 'flex';
-    header.style.justifyContent = 'space-between';
-    header.style.alignItems = 'center';
-
-    const headerTitle = document.createElement('h3');
-    headerTitle.textContent = 'Assign Category';
-    headerTitle.style.margin = '0';
-    headerTitle.style.fontSize = '18px';
-    headerTitle.style.fontWeight = '500';
-    headerTitle.style.fontFamily = 'Manrope, sans-serif';
-
-    const closeButton = document.createElement('button');
-    closeButton.innerHTML = '&times;';
-    closeButton.style.background = 'none';
-    closeButton.style.border = 'none';
-    closeButton.style.fontSize = '24px';
-    closeButton.style.color = '#7C7C7C';
-    closeButton.style.cursor = 'pointer';
-    closeButton.style.padding = '0';
-    closeButton.onclick = closeDialog;
-
-    header.appendChild(headerTitle);
-    header.appendChild(closeButton);
-    dialog.appendChild(header);
-
-    // Create timestamp display
-    const timestampInfo = document.createElement('div');
-    timestampInfo.style.backgroundColor = '#191919';
-    timestampInfo.style.padding = '8px';
-    timestampInfo.style.borderRadius = '8px';
-    timestampInfo.style.display = 'flex';
-    timestampInfo.style.alignItems = 'center';
-    timestampInfo.style.gap = '12px';
-    timestampInfo.style.border = '1px solid #2D2D2D';
-
-    const thumbnailImg = document.createElement('img');
-    thumbnailImg.src = thumbnailUrl;
-    thumbnailImg.style.width = '100px';
-    thumbnailImg.style.height = '56px';
-    thumbnailImg.style.borderRadius = '6px';
-    thumbnailImg.style.objectFit = 'cover';
-
-    const infoText = document.createElement('div');
-    infoText.style.display = 'flex';
-    infoText.style.flexDirection = 'column';
-    infoText.style.gap = '4px';
-    infoText.style.flex = '1';
-    infoText.style.minWidth = '0';
-
-    const titleText = document.createElement('div');
-    titleText.textContent = title;
-    titleText.style.fontSize = '14px';
-    titleText.style.fontWeight = '500';
-    titleText.style.color = '#ffffff';
-    titleText.style.lineHeight = '1.4';
-    titleText.style.overflow = 'hidden';
-    titleText.style.display = '-webkit-box';
-    titleText.style.webkitLineClamp = '2';
-    titleText.style.webkitBoxOrient = 'vertical';
-    titleText.style.textOverflow = 'ellipsis';
-    titleText.style.fontFamily = 'Manrope, sans-serif';
-
-    const timeText = document.createElement('div');
-    timeText.style.display = 'flex';
-    timeText.style.alignItems = 'center';
-    timeText.style.gap = '4px';
-
-    if (isExtensionContextValid()) {
-        const timestampIcon = document.createElement('img');
-        timestampIcon.src = chrome.runtime.getURL('timestamp.svg');
-        timestampIcon.alt = 'Timestamp';
-        timestampIcon.style.width = '12px';
-        timestampIcon.style.height = '12px';
-        timestampIcon.style.display = 'block';
-        timeText.appendChild(timestampIcon);
-    }
-
-    const timeValue = document.createElement('span');
-    timeValue.textContent = formattedTime;
-    timeValue.style.fontFamily = "'Space Mono', monospace";
-    timeValue.style.fontSize = '12px';
-    timeValue.style.fontWeight = '400';
-    timeValue.style.color = '#7C7C7C';
-    timeText.appendChild(timeValue);
-
-    infoText.appendChild(titleText);
-    infoText.appendChild(timeText);
-
-    timestampInfo.appendChild(thumbnailImg);
-    timestampInfo.appendChild(infoText);
-    dialog.appendChild(timestampInfo);
-
-    // Create category selection
     const categorySection = document.createElement('div');
     categorySection.style.display = 'flex';
     categorySection.style.flexDirection = 'column';
@@ -488,7 +664,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     categoryLabel.style.fontSize = '14px';
     categoryLabel.style.fontWeight = '500';
     categoryLabel.style.color = '#ffffff';
-    categoryLabel.style.fontFamily = 'Manrope, sans-serif';
+    categoryLabel.style.fontFamily = PRIMARY_FONT_FAMILY;
 
     const categoryDropdown = document.createElement('div');
     categoryDropdown.style.position = 'relative';
@@ -546,15 +722,61 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     applyCategoryFieldStyles(newCategoryInput);
     newCategoryInput.style.display = 'none';
 
+    let notesInput = null;
+    let notesSection = null;
+    let showNotesRow = null;
+
+    if (globalStudyMode) {
+        notesSection = document.createElement('div');
+        notesSection.style.display = 'flex';
+        notesSection.style.flexDirection = 'column';
+        notesSection.style.gap = '8px';
+
+        const notesLabel = document.createElement('label');
+        notesLabel.textContent = 'Notes';
+        notesLabel.style.fontSize = '14px';
+        notesLabel.style.fontWeight = '500';
+        notesLabel.style.color = '#ffffff';
+        notesLabel.style.fontFamily = PRIMARY_FONT_FAMILY;
+
+        notesInput = createNotesInputField('Add a note for this timestamp... (optional)');
+        notesSection.appendChild(notesLabel);
+        notesSection.appendChild(notesInput);
+
+        showNotesRow = document.createElement('label');
+        showNotesRow.style.display = 'flex';
+        showNotesRow.style.alignItems = 'center';
+        showNotesRow.style.gap = '8px';
+        showNotesRow.style.fontSize = '13px';
+        showNotesRow.style.color = '#D2D2D2';
+        showNotesRow.style.cursor = 'pointer';
+
+        const showNotesCheckbox = document.createElement('input');
+        showNotesCheckbox.type = 'checkbox';
+        showNotesCheckbox.checked = await getShowNotesModalPreference().catch(() => true);
+        applyDialogCheckboxStyles(showNotesCheckbox);
+
+        const showNotesText = document.createElement('span');
+        showNotesText.textContent = 'Ask me to add notes every time I save';
+
+        showNotesRow.appendChild(showNotesCheckbox);
+        showNotesRow.appendChild(showNotesText);
+
+        showNotesCheckbox.addEventListener('change', () => {
+            setShowNotesModalPreference(showNotesCheckbox.checked).catch((error) => {
+                console.error('Failed to save showNotesModal preference:', error);
+            });
+        });
+    }
+
     const selectedTickIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 6"><path fill="#1FA700" d="M3.359 6L0 2.64l.947-.947 2.412 2.407L9.053 0 10 .947 3.359 6Z"/></svg>';
     let selectedCategoryValue = 'Default';
     let availableCategories = ['Default'];
+
     const buildAvailableCategories = (categoriesObj) => {
         const savedCategoryNames = Object.keys(categoriesObj || {})
-            .filter((cat) => cat !== 'Default')
+            .filter((categoryName) => categoryName !== 'Default')
             .sort();
-
-        // Keep Default available so saving to it can recreate it when needed.
         return ['Default', ...savedCategoryNames];
     };
 
@@ -600,7 +822,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
 
         const text = document.createElement('span');
         text.textContent = label;
-        text.style.fontFamily = 'Manrope, sans-serif';
+        text.style.fontFamily = PRIMARY_FONT_FAMILY;
         text.style.fontSize = '14px';
         text.style.fontWeight = '500';
         text.style.lineHeight = '20px';
@@ -625,8 +847,8 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
             updateState();
         };
 
-        row.onclick = (e) => {
-            e.stopPropagation();
+        row.onclick = (event) => {
+            event.stopPropagation();
             if (isCreateNew) {
                 closeCategoryDropdown();
                 categoryTrigger.style.display = 'none';
@@ -634,6 +856,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
                 newCategoryInput.focus();
                 return;
             }
+
             setSelectedCategory(value);
             renderCategoryOptions();
             closeCategoryDropdown();
@@ -654,8 +877,8 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
         categoryOptionsList.appendChild(createCategoryRow('+ Create new category', 'create-new', true));
     };
 
-    categoryTrigger.onclick = (e) => {
-        e.stopPropagation();
+    categoryTrigger.onclick = (event) => {
+        event.stopPropagation();
         const shouldOpen = categoryDropdownMenu.style.display !== 'block';
         if (shouldOpen) {
             categoryDropdownMenu.style.display = 'block';
@@ -672,12 +895,6 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     };
     document.addEventListener('click', removeCategoryDropdownDocumentListener);
 
-    // Load existing categories
-    if (!isExtensionContextValid()) {
-        handleContextInvalidation();
-        return;
-    }
-
     getCloudCategories((categories, error) => {
         if (error) {
             closeDialog();
@@ -693,8 +910,13 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     categorySection.appendChild(categoryDropdown);
     categorySection.appendChild(newCategoryInput);
     dialog.appendChild(categorySection);
+    if (notesSection) {
+        dialog.appendChild(notesSection);
+    }
+    if (showNotesRow) {
+        dialog.appendChild(showNotesRow);
+    }
 
-    // Create action buttons
     const buttonsContainer = document.createElement('div');
     buttonsContainer.style.display = 'flex';
     buttonsContainer.style.justifyContent = 'flex-end';
@@ -709,18 +931,7 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     cancelButton.style.padding = '8px 12px';
     cancelButton.style.color = '#7C7C7C';
     cancelButton.style.cursor = 'pointer';
-    cancelButton.style.fontFamily = 'Manrope, sans-serif';
-    cancelButton.style.transition = 'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease';
-    cancelButton.onmouseover = function () {
-        this.style.backgroundColor = '#333333';
-        this.style.borderColor = '#555555';
-        this.style.color = '#ffffff';
-    };
-    cancelButton.onmouseout = function () {
-        this.style.backgroundColor = '#242424';
-        this.style.borderColor = '#393838';
-        this.style.color = '#7C7C7C';
-    };
+    cancelButton.style.fontFamily = PRIMARY_FONT_FAMILY;
     cancelButton.onclick = closeDialog;
 
     const saveButton = document.createElement('button');
@@ -731,28 +942,18 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     saveButton.style.padding = '8px 12px';
     saveButton.style.color = '#ffffff';
     saveButton.style.cursor = 'pointer';
-    saveButton.style.fontFamily = 'Manrope, sans-serif';
-    saveButton.style.transition = 'background-color 0.2s ease';
-    saveButton.onmouseover = function () {
-        this.style.backgroundColor = '#611726';
-    };
-    saveButton.onmouseout = function () {
-        this.style.backgroundColor = '#781D2F';
-    };
-    saveButton.onclick = function () {
-        let selectedCategory;
+    saveButton.style.fontFamily = PRIMARY_FONT_FAMILY;
+    saveButton.onclick = () => {
+        const selectedCategory = newCategoryInput.style.display === 'block'
+            ? newCategoryInput.value.trim()
+            : selectedCategoryValue;
 
-        if (newCategoryInput.style.display === 'block') {
-            selectedCategory = newCategoryInput.value.trim();
-            if (!selectedCategory) {
-                alert('Please enter a category name');
-                return;
-            }
-        } else {
-            selectedCategory = selectedCategoryValue;
+        if (!selectedCategory) {
+            alert('Please enter a category name');
+            return;
         }
 
-        saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, selectedCategory);
+        saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, selectedCategory, notesInput ? notesInput.value : '');
         closeDialog();
     };
 
@@ -760,25 +961,67 @@ function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl) 
     buttonsContainer.appendChild(saveButton);
     dialog.appendChild(buttonsContainer);
 
-    // Add dialog and backdrop to page
     document.body.appendChild(backdrop);
     document.body.appendChild(dialog);
 }
 
-// Function to save timestamp with selected category
-function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, category) {
+function showRepeatSaveDialog(videoId, title, currentTime, thumbnailUrl, category) {
     if (!isExtensionContextValid()) {
         handleContextInvalidation();
         return;
     }
 
-    const videoData = {
-        videoId: videoId,
-        title: title,
-        currentTime,
-        thumbnail: thumbnailUrl,
-        timestamp: Date.now()
+    const { dialog, backdrop, closeDialog } = createDialogScaffold('Add a note');
+    dialog.appendChild(createTimestampInfoCard(title, currentTime, thumbnailUrl));
+
+    const notesInput = createNotesInputField('Add a note for this timestamp... (optional)');
+    dialog.appendChild(notesInput);
+
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.style.display = 'flex';
+    buttonsContainer.style.justifyContent = 'flex-end';
+    buttonsContainer.style.gap = '8px';
+    buttonsContainer.style.marginTop = '8px';
+
+    const cancelButton = document.createElement('button');
+    cancelButton.textContent = 'Cancel';
+    cancelButton.style.backgroundColor = '#242424';
+    cancelButton.style.border = '1px solid #393838';
+    cancelButton.style.borderRadius = '10px';
+    cancelButton.style.padding = '8px 12px';
+    cancelButton.style.color = '#7C7C7C';
+    cancelButton.style.cursor = 'pointer';
+    cancelButton.style.fontFamily = PRIMARY_FONT_FAMILY;
+    cancelButton.onclick = closeDialog;
+
+    const saveButton = document.createElement('button');
+    saveButton.textContent = 'Save';
+    saveButton.style.backgroundColor = '#781D2F';
+    saveButton.style.border = '1px solid #ED1A43';
+    saveButton.style.borderRadius = '10px';
+    saveButton.style.padding = '8px 12px';
+    saveButton.style.color = '#ffffff';
+    saveButton.style.cursor = 'pointer';
+    saveButton.style.fontFamily = PRIMARY_FONT_FAMILY;
+    saveButton.onclick = () => {
+        saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, category, notesInput.value);
+        closeDialog();
     };
+
+    buttonsContainer.appendChild(cancelButton);
+    buttonsContainer.appendChild(saveButton);
+    dialog.appendChild(buttonsContainer);
+
+    document.body.appendChild(backdrop);
+    document.body.appendChild(dialog);
+}
+
+// Function to save timestamp with selected category
+function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, category, note = '') {
+    if (!isExtensionContextValid()) {
+        handleContextInvalidation();
+        return;
+    }
 
     getCloudCategories((categories, error) => {
         if (error) {
@@ -786,42 +1029,65 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
             return;
         }
 
-        // Ensure category exists
-        if (!categories[category]) {
-            categories[category] = [];
-        }
+        const persistTimestamp = (globalStudyMode) => {
+            if (!categories[category]) {
+                categories[category] = [];
+            }
 
-        // Check if video already exists in this category
-        const existingVideoIndex = categories[category].findIndex(video => video.videoId === videoId);
-        const formattedTime = formatTime(currentTime);
+            const existingVideoIndex = categories[category].findIndex((video) => video.videoId === videoId);
+            const newTimestampEntry = {
+                time: currentTime,
+                note: String(note || '').trim(),
+                savedAt: Date.now()
+            };
+            const formattedTime = formatTime(currentTime);
 
-        if (existingVideoIndex === -1) {
-            // Video not in this category, add it at the beginning
-            categories[category].unshift(videoData);
+            if (existingVideoIndex === -1) {
+                const videoData = {
+                    videoId,
+                    title,
+                    currentTime,
+                    thumbnail: thumbnailUrl,
+                    timestamp: newTimestampEntry.savedAt,
+                    studyMode: globalStudyMode,
+                    timestamps: [newTimestampEntry]
+                };
 
-            setCloudCategories(categories, (saveError) => {
-                if (saveError) {
-                    console.error('Error saving to timestamp store:', saveError);
+                categories[category].unshift(videoData);
+
+                setCloudCategories(categories, (saveError) => {
+                    if (saveError) {
+                        console.error('Error saving to timestamp store:', saveError);
+                        showCustomPopup({
+                            action: 'error',
+                            time: formattedTime
+                        });
+                        return;
+                    }
+
                     showCustomPopup({
-                        action: 'error',
+                        action: 'added',
                         time: formattedTime
                     });
-                    return;
-                }
-
-                showCustomPopup({
-                    action: 'added',
-                    time: formattedTime
+                    console.log('Timestamp added to category:', category, videoData);
                 });
-                console.log('Timestamp added to category:', category, videoData);
-            });
-        } else {
-            // Video exists in this category, update its timestamp
-            categories[category][existingVideoIndex].currentTime = currentTime;
-            categories[category][existingVideoIndex].timestamp = Date.now();
-            categories[category][existingVideoIndex].title = title;
+                return;
+            }
 
-            // Move to the beginning of the category
+            const existingVideo = categories[category][existingVideoIndex];
+            const effectiveStudyMode = Boolean(globalStudyMode || existingVideo.studyMode === true);
+            existingVideo.timestamps = effectiveStudyMode
+                ? [
+                    ...getNormalizedVideoTimestampEntries(existingVideo),
+                    newTimestampEntry
+                ]
+                : [newTimestampEntry];
+            existingVideo.currentTime = currentTime;
+            existingVideo.timestamp = newTimestampEntry.savedAt;
+            existingVideo.title = title;
+            existingVideo.thumbnail = thumbnailUrl;
+            existingVideo.studyMode = effectiveStudyMode;
+
             const updatedVideo = categories[category].splice(existingVideoIndex, 1)[0];
             categories[category].unshift(updatedVideo);
 
@@ -841,7 +1107,16 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
                 });
                 console.log('Timestamp updated in category:', category, updatedVideo);
             });
-        }
+        };
+
+        getStudyModePreference()
+            .then((globalStudyMode) => {
+                persistTimestamp(globalStudyMode);
+            })
+            .catch((preferenceError) => {
+                console.error('Failed to read Study Mode preference:', preferenceError);
+                persistTimestamp(false);
+            });
     });
 }
 
@@ -853,14 +1128,7 @@ function addButton() {
         return;
     }
 
-    const spaceMonoLinkId = 'save-resume-space-mono-font';
-    if (!document.getElementById(spaceMonoLinkId)) {
-        const spaceMonoLink = document.createElement('link');
-        spaceMonoLink.id = spaceMonoLinkId;
-        spaceMonoLink.rel = 'stylesheet';
-        spaceMonoLink.href = 'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap';
-        document.head.appendChild(spaceMonoLink);
-    }
+    ensureDialogFontsLoaded();
 
     // Remove existing button if any
     const existingBtn = document.getElementById('addToWatchlistBtn');
@@ -882,7 +1150,7 @@ function addButton() {
         const btn = document.createElement('button');
         btn.id = 'addToWatchlistBtn';
         btn.innerText = 'SAVE TIMESTAMP';
-        btn.style.fontFamily = "'Space Mono', monospace";
+        btn.style.fontFamily = MONO_FONT_FAMILY;
         btn.style.position = 'fixed';
         btn.style.bottom = '20px';
         btn.style.right = '20px';

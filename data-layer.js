@@ -16,7 +16,7 @@
     };
 
     const STATE_DOC_PATH_SUFFIX = '/data/state';
-    const LOCAL_SCHEMA_VERSION = 2;
+    const LOCAL_SCHEMA_VERSION = 3;
 
     function isObject(value) {
         return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -25,6 +25,49 @@
     function toNumber(value, fallback = 0) {
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    function normalizeStudyTimestampEntry(entry, fallbackTime = 0, fallbackSavedAt = Date.now()) {
+        if (!isObject(entry)) {
+            return {
+                time: Math.max(0, toNumber(fallbackTime, 0)),
+                note: '',
+                savedAt: Math.max(0, toNumber(fallbackSavedAt, Date.now()))
+            };
+        }
+
+        return {
+            time: Math.max(0, toNumber(entry.time, fallbackTime)),
+            note: typeof entry.note === 'string' ? entry.note : '',
+            savedAt: Math.max(0, toNumber(entry.savedAt, fallbackSavedAt))
+        };
+    }
+
+    function normalizeStudyTimestampEntries(entries, fallbackTime = 0, fallbackSavedAt = Date.now()) {
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return [normalizeStudyTimestampEntry(null, fallbackTime, fallbackSavedAt)];
+        }
+
+        const normalized = entries
+            .map((entry) => normalizeStudyTimestampEntry(entry, fallbackTime, fallbackSavedAt))
+            .filter(Boolean);
+
+        if (normalized.length === 0) {
+            return [normalizeStudyTimestampEntry(null, fallbackTime, fallbackSavedAt)];
+        }
+
+        return normalized;
+    }
+
+    function getMostRecentStudyTimestampEntry(entries, fallbackTime = 0, fallbackSavedAt = Date.now()) {
+        const normalized = normalizeStudyTimestampEntries(entries, fallbackTime, fallbackSavedAt);
+        return normalized.reduce((latest, entry) => {
+            if (!latest) {
+                return entry;
+            }
+
+            return entry.savedAt >= latest.savedAt ? entry : latest;
+        }, null);
     }
 
     function clone(value) {
@@ -85,13 +128,17 @@
 
         const safeTimestamp = Math.max(0, toNumber(record.timestamp, 0));
         const safeSavedAt = Math.max(0, toNumber(record.savedAt, Date.now()));
+        const normalizedTimestampEntries = normalizeStudyTimestampEntries(record.timestamps, safeTimestamp, safeSavedAt);
+        const latestTimestampEntry = getMostRecentStudyTimestampEntry(normalizedTimestampEntries, safeTimestamp, safeSavedAt);
 
         return {
-            timestamp: safeTimestamp,
+            timestamp: Math.max(0, toNumber(record.timestamp, latestTimestampEntry.time)),
             title: typeof record.title === 'string' ? record.title : '',
-            savedAt: safeSavedAt,
+            savedAt: Math.max(0, toNumber(record.savedAt, latestTimestampEntry.savedAt)),
             thumbnail: typeof record.thumbnail === 'string' ? record.thumbnail : '',
-            syncPending: record.syncPending === true
+            syncPending: record.syncPending === true,
+            studyMode: record.studyMode === true,
+            timestamps: normalizedTimestampEntries
         };
     }
 
@@ -177,15 +224,19 @@
 
         const timestamp = Math.max(0, toNumber(video.currentTime, 0));
         const savedAt = Math.max(0, toNumber(video.timestamp, Date.now()));
+        const normalizedTimestampEntries = normalizeStudyTimestampEntries(video.timestamps, timestamp, savedAt);
+        const latestTimestampEntry = getMostRecentStudyTimestampEntry(normalizedTimestampEntries, timestamp, savedAt);
 
         return {
             videoId: video.videoId,
             record: {
-                timestamp,
+                timestamp: Math.max(0, toNumber(video.currentTime, latestTimestampEntry.time)),
                 title: typeof video.title === 'string' ? video.title : '',
-                savedAt,
+                savedAt: Math.max(0, toNumber(video.timestamp, latestTimestampEntry.savedAt)),
                 thumbnail: typeof video.thumbnail === 'string' ? video.thumbnail : '',
-                syncPending: false
+                syncPending: false,
+                studyMode: video.studyMode === true,
+                timestamps: normalizedTimestampEntries
             }
         };
     }
@@ -264,7 +315,15 @@
                     title: record.title || '',
                     currentTime: toNumber(record.timestamp, 0),
                     thumbnail: typeof record.thumbnail === 'string' ? record.thumbnail : '',
-                    timestamp: toNumber(record.savedAt, Date.now())
+                    timestamp: toNumber(record.savedAt, Date.now()),
+                    studyMode: record.studyMode === true,
+                    timestamps: Array.isArray(record.timestamps)
+                        ? record.timestamps.map((entry) => ({
+                            time: Math.max(0, toNumber(entry.time, 0)),
+                            note: typeof entry.note === 'string' ? entry.note : '',
+                            savedAt: Math.max(0, toNumber(entry.savedAt, Date.now()))
+                        }))
+                        : []
                 });
             });
 

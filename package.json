@@ -2,7 +2,8 @@
   "scripts": {
     "setup:config": "node scripts/generate-config.js",
     "build:auth": "webpack",
-    "build": "npm run setup:config && npm run build:auth"
+    "build": "npm run setup:config && npm run build:auth",
+    "package:extension": "bash ./scripts/package-extension.sh"
   },
   "devDependencies": {
     "webpack": "^5.103.0",

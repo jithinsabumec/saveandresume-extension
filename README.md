@@ -107,6 +107,14 @@ This does two things:
 1. Generates `firebase-config.js` from your `.env` file
 2. Rebuilds `auth_bundle.js` from `auth.js`
 
+### 3.1) Create the upload zip (recommended for release)
+
+```bash
+npm run package:extension
+```
+
+This creates a clean `save-and-resume-upload.zip` that includes only runtime extension files (and excludes dev folders like `node_modules`).
+
 ### 4) Configure Firebase Auth (Google sign-in)
 
 1. In Firebase Console, enable **Authentication > Sign-in method > Google**.
@@ -197,6 +205,7 @@ The extension stores category data in JSON form inside this document.
 - `npm run setup:config` -> generate `firebase-config.js` from `.env`
 - `npm run build:auth` -> bundle `auth.js` into `auth_bundle.js`
 - `npm run build` -> run both steps above
+- `npm run package:extension` -> build and create a clean upload zip with runtime files only
 
 ## Permissions Used (and Why)
 

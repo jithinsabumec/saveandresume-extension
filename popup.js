@@ -2,6 +2,28 @@ let isEditMode = false;
 let pendingCategoryDeletion = null;
 const dataClient = globalThis.SaveResumeDataLayer.createClientDataLayer();
 const PROTECTED_CATEGORY_NAMES = new Set(['Default']);
+const expandedStudyVideos = new Set();
+const PROFILE_PLACEHOLDER_IMAGE = 'profile.png';
+let closeProfileDropdownHandler = null;
+let activeStudyModeInfoAnchor = null;
+let infoPopoverOutsideClickHandler = null;
+
+const STUDY_MODE_GLOBAL_INFO_COPY = Object.freeze({
+    title: 'What is Study Mode?',
+    body: 'Study Mode transforms any video card into a research card. Instead of a single resume timestamp, you can save multiple moments in a video and add a personal note to each one. Use it when you are learning something, doing research, or want to remember why a specific moment in a video mattered to you.',
+    examples: [
+        'Watching a tutorial? Mark every concept you want to revisit later.',
+        'In a research session? Add your thoughts at each key moment.'
+    ],
+    footer: 'You can switch Study Mode off at any time. Your timestamps and notes are always kept safe.'
+});
+
+const STUDY_MODE_VIDEO_INFO_COPY = Object.freeze({
+    title: 'Study Mode for this video',
+    body: 'Turning on Study Mode for this video lets you save multiple timestamps and add notes to each one - just for this video. Other videos stay in Resume Mode unless you turn on Study Mode globally from your profile.',
+    examples: [],
+    footer: 'Turning Study Mode off later will not delete your timestamps or notes. Everything is saved and will come back if you switch it on again.'
+});
 
 function runtimeRequest(message) {
     return new Promise((resolve, reject) => {
@@ -88,6 +110,114 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function hideStudyModeInfoPopover() {
+    const existing = document.getElementById('study-mode-info-popover');
+    if (existing) {
+        existing.remove();
+    }
+
+    if (infoPopoverOutsideClickHandler) {
+        document.removeEventListener('mousedown', infoPopoverOutsideClickHandler);
+        infoPopoverOutsideClickHandler = null;
+    }
+
+    activeStudyModeInfoAnchor = null;
+}
+
+function positionInfoPopover(anchorElement, popover) {
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const gap = 8;
+    const edgePadding = 8;
+
+    const spaceBelow = viewportHeight - anchorRect.bottom;
+    const spaceAbove = anchorRect.top;
+    const shouldOpenAbove = spaceBelow < popoverRect.height + gap && spaceAbove > spaceBelow;
+
+    let top = shouldOpenAbove
+        ? anchorRect.top - popoverRect.height - gap
+        : anchorRect.bottom + gap;
+    top = Math.max(edgePadding, Math.min(top, viewportHeight - popoverRect.height - edgePadding));
+
+    let left = anchorRect.left + (anchorRect.width / 2) - (popoverRect.width / 2);
+    left = Math.max(edgePadding, Math.min(left, viewportWidth - popoverRect.width - edgePadding));
+
+    popover.style.top = `${Math.round(top)}px`;
+    popover.style.left = `${Math.round(left)}px`;
+}
+
+function showInfoPopover(anchorElement, title, bodyText, examples, footerText) {
+    const existing = document.getElementById('study-mode-info-popover');
+    const shouldToggleOff = Boolean(existing && activeStudyModeInfoAnchor === anchorElement);
+    hideStudyModeInfoPopover();
+    if (shouldToggleOff) {
+        return;
+    }
+
+    const popover = document.createElement('div');
+    popover.id = 'study-mode-info-popover';
+
+    const titleElement = document.createElement('div');
+    titleElement.className = 'info-popover-title';
+    titleElement.textContent = title;
+    popover.appendChild(titleElement);
+
+    const bodyElement = document.createElement('div');
+    bodyElement.className = 'info-popover-body';
+    bodyElement.textContent = bodyText;
+    popover.appendChild(bodyElement);
+
+    if (Array.isArray(examples)) {
+        examples.forEach((exampleText) => {
+            const exampleElement = document.createElement('div');
+            exampleElement.className = 'info-popover-example';
+            exampleElement.textContent = exampleText;
+            popover.appendChild(exampleElement);
+        });
+    }
+
+    const footerElement = document.createElement('div');
+    footerElement.className = 'info-popover-footer';
+    footerElement.textContent = footerText;
+    popover.appendChild(footerElement);
+
+    document.body.appendChild(popover);
+    positionInfoPopover(anchorElement, popover);
+
+    activeStudyModeInfoAnchor = anchorElement;
+    infoPopoverOutsideClickHandler = (event) => {
+        if (popover.contains(event.target)) {
+            return;
+        }
+        if (event.target.closest('.info-btn')) {
+            return;
+        }
+        hideStudyModeInfoPopover();
+    };
+    document.addEventListener('mousedown', infoPopoverOutsideClickHandler);
+}
+
+function bindStudyModeInfoButton(infoButton, copy) {
+    if (!infoButton || !copy) {
+        return;
+    }
+
+    const openInfoPopover = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        showInfoPopover(infoButton, copy.title, copy.body, copy.examples, copy.footer);
+    };
+
+    infoButton.addEventListener('click', openInfoPopover);
+    infoButton.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            openInfoPopover(event);
+        }
+    });
+}
+
 function safeThumbnailUrl(value) {
     if (typeof value !== 'string') return '';
     try {
@@ -109,10 +239,217 @@ function escapeForAttributeSelector(value) {
     return String(value).replace(/["\\]/g, '\\$&');
 }
 
-function removeVideoFromWatchlist(videoId, timestamp, category, event) {
+function getBooleanFromLocalStorage(key, fallback = false) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.get([key], (result) => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+
+            if (!Object.prototype.hasOwnProperty.call(result, key)) {
+                resolve(Boolean(fallback));
+                return;
+            }
+
+            resolve(result[key] === true);
+        });
+    });
+}
+
+function setBooleanInLocalStorage(key, value) {
+    return new Promise((resolve, reject) => {
+        chrome.storage.local.set({ [key]: Boolean(value) }, () => {
+            if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+                return;
+            }
+
+            resolve(Boolean(value));
+        });
+    });
+}
+
+function getStudyMode() {
+    return getBooleanFromLocalStorage('studyMode', false);
+}
+
+function setStudyMode(value) {
+    return setBooleanInLocalStorage('studyMode', value);
+}
+
+function getActiveCategoryFilter() {
+    return document.querySelector('.category-item.active')?.getAttribute('data-category') || 'all';
+}
+
+function getNormalizedVideoTimestampEntries(video) {
+    const fallbackTime = Math.max(0, Number(video?.currentTime) || 0);
+    const fallbackSavedAt = Math.max(0, Number(video?.timestamp) || Date.now());
+    const rawEntries = Array.isArray(video?.timestamps) && video.timestamps.length > 0
+        ? video.timestamps
+        : [{ time: fallbackTime, note: '', savedAt: fallbackSavedAt }];
+
+    return rawEntries
+        .map((entry) => ({
+            time: Math.max(0, Number(entry?.time) || 0),
+            note: typeof entry?.note === 'string' ? entry.note : '',
+            savedAt: Math.max(0, Number(entry?.savedAt) || fallbackSavedAt)
+        }));
+}
+
+function getVideoTimestampEntries(video) {
+    return getNormalizedVideoTimestampEntries(video)
+        .sort((left, right) => {
+            if (left.time !== right.time) {
+                return left.time - right.time;
+            }
+            return left.savedAt - right.savedAt;
+        });
+}
+
+function getLatestTimestampEntry(video) {
+    const entries = getNormalizedVideoTimestampEntries(video);
+    return entries.reduce((latest, entry) => {
+        if (!latest) {
+            return entry;
+        }
+
+        return entry.savedAt >= latest.savedAt ? entry : latest;
+    }, null);
+}
+
+function isStudyModeVideo(video, globalStudyMode) {
+    return Boolean(globalStudyMode || video?.studyMode === true);
+}
+
+function setStudyModePillState(pillElement, isOn) {
+    if (!pillElement) {
+        return;
+    }
+
+    pillElement.classList.toggle('is-on', isOn);
+    pillElement.classList.toggle('is-off', !isOn);
+    pillElement.setAttribute('data-state', isOn ? 'on' : 'off');
+}
+
+function updateVideoNoteText(noteElement, nextValue) {
+    if (!noteElement) {
+        return;
+    }
+
+    const trimmed = String(nextValue || '').trim();
+    const isPlaceholder = trimmed.length === 0;
+    noteElement.textContent = isPlaceholder ? 'Add a note...' : trimmed;
+    noteElement.classList.toggle('is-placeholder', isPlaceholder);
+}
+
+function saveVideoNote(category, videoId, savedAt, nextNote, noteElement) {
+    const trimmedNote = String(nextNote || '').trim();
+
+    cloudStorage.get(['categories'], function (result) {
+        const categories = result.categories || {};
+        const videos = Array.isArray(categories[category]) ? categories[category] : [];
+        const targetVideo = videos.find((video) => video.videoId === videoId);
+
+        if (!targetVideo) {
+            return;
+        }
+
+        const targetEntry = getNormalizedVideoTimestampEntries(targetVideo).find((entry) => entry.savedAt === savedAt);
+        if (!targetEntry) {
+            return;
+        }
+
+        targetEntry.note = trimmedNote;
+        targetVideo.timestamps = getNormalizedVideoTimestampEntries(targetVideo).map((entry) => (
+            entry.savedAt === savedAt
+                ? { ...entry, note: trimmedNote }
+                : entry
+        ));
+
+        cloudStorage.set({ categories }, function () {
+            updateVideoNoteText(noteElement, trimmedNote);
+        });
+    });
+}
+
+function activateInlineNoteEdit(noteElement, category, videoId, savedAt) {
+    if (!noteElement || noteElement.dataset.editing === 'true') {
+        return;
+    }
+
+    const originalValue = noteElement.dataset.noteValue || '';
+    const input = document.createElement('textarea');
+    input.className = 'note-input';
+    input.value = originalValue;
+    input.placeholder = 'Add a note...';
+    input.rows = 1;
+
+    noteElement.dataset.editing = 'true';
+    noteElement.replaceWith(input);
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+
+    const autoSizeInput = () => {
+        input.style.height = 'auto';
+        input.style.height = `${Math.max(input.scrollHeight, 14)}px`;
+    };
+    autoSizeInput();
+
+    let didFinish = false;
+
+    const restoreDisplay = (nextValue, shouldSave) => {
+        if (didFinish) {
+            return;
+        }
+        didFinish = true;
+
+        noteElement.dataset.editing = 'false';
+        noteElement.dataset.noteValue = shouldSave ? String(nextValue || '').trim() : originalValue;
+        updateVideoNoteText(noteElement, noteElement.dataset.noteValue);
+        input.replaceWith(noteElement);
+
+        if (shouldSave) {
+            saveVideoNote(category, videoId, savedAt, nextValue, noteElement);
+        }
+    };
+
+    input.addEventListener('click', (event) => {
+        event.stopPropagation();
+    });
+
+    input.addEventListener('keydown', (event) => {
+        event.stopPropagation();
+
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault();
+            restoreDisplay(input.value, true);
+            return;
+        }
+
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            restoreDisplay(originalValue, false);
+        }
+    });
+
+    input.addEventListener('blur', () => {
+        restoreDisplay(input.value, true);
+    });
+
+    input.addEventListener('input', autoSizeInput);
+}
+
+function removeVideoFromWatchlist(videoToRemove, category, event) {
     event.stopPropagation();
-    const activeCategoryItem = document.querySelector('.category-item.active');
-    const activeCategory = activeCategoryItem?.getAttribute('data-category') || 'all';
+    const activeCategory = getActiveCategoryFilter();
+    const timestampEntries = Array.isArray(videoToRemove?.timestamps) ? videoToRemove.timestamps : [];
+    if (timestampEntries.length > 0) {
+        const message = `This video has ${timestampEntries.length} ${timestampEntries.length === 1 ? 'timestamp' : 'timestamps'} and notes saved. Deleting it will remove everything.`;
+        if (!window.confirm(message)) {
+            return;
+        }
+    }
 
     cloudStorage.get(['categories'], function (result) {
         const categories = result.categories || {};
@@ -120,8 +457,8 @@ function removeVideoFromWatchlist(videoId, timestamp, category, event) {
 
         Object.keys(categories).forEach((categoryName) => {
             const videos = Array.isArray(categories[categoryName]) ? categories[categoryName] : [];
-            const filteredVideos = videos.filter((video) => {
-                return !(video.videoId === videoId && video.timestamp === timestamp);
+            const filteredVideos = videos.filter((candidateVideo) => {
+                return candidateVideo.videoId !== videoToRemove.videoId;
             });
 
             if (filteredVideos.length !== videos.length) {
@@ -237,7 +574,216 @@ function isProtectedCategory(categoryName) {
     return PROTECTED_CATEGORY_NAMES.has(String(categoryName || '').trim());
 }
 
-function renderWatchlist(onComplete) {
+function showWatchlistEmptyState(watchlistElement) {
+    watchlistElement.innerHTML = '';
+    const emptyState = document.createElement('div');
+    emptyState.className = 'empty-state-text';
+    emptyState.innerHTML = `
+        <img src="./instructions.svg" alt="instructions" class="empty-state-icon" width="300" draggable="false" />
+    `;
+    watchlistElement.appendChild(emptyState);
+}
+
+function buildExpandedRowsMarkup(video) {
+    return getVideoTimestampEntries(video).map((entry) => {
+        const noteText = String(entry.note || '').trim();
+        const safeNoteText = escapeHtml(noteText);
+        const safeDisplayText = noteText ? safeNoteText : 'Add a note...';
+
+        return `
+            <div class="timestamp-row" data-saved-at="${entry.savedAt}">
+                <button class="timestamp-row-time" type="button" data-time="${entry.time}" title="Jump to timestamp">
+                    <img src="timestamp.svg" class="timestamp-icon" alt="timestamp" width="10" height="10" />
+                    <span class="timestamp-value">${escapeHtml(formatTime(entry.time))}</span>
+                </button>
+                <button
+                    class="note-display${noteText ? '' : ' is-placeholder'}"
+                    type="button"
+                    data-note-value="${safeNoteText}"
+                >${safeDisplayText}</button>
+            </div>
+        `;
+    }).join('');
+}
+
+function createWatchlistItem(video, category, globalStudyMode) {
+    const latestTimestampEntry = getLatestTimestampEntry(video);
+    const effectiveTime = Math.max(0, Number(video.currentTime) || latestTimestampEntry?.time || 0);
+    const safeTitle = escapeHtml(video.title || 'Untitled video');
+    const safeThumbnail = escapeHtml(safeThumbnailUrl(video.thumbnail));
+    const safeTimestamp = escapeHtml(formatTime(effectiveTime));
+    const isStudyMode = isStudyModeVideo(video, globalStudyMode);
+    const isExpanded = isStudyMode && expandedStudyVideos.has(video.videoId);
+    const studyModeInfoButtonId = `study-mode-info-btn-video-${String(video.videoId || 'video')}-${String(video.timestamp || 0)}`
+        .replace(/[^a-zA-Z0-9_-]/g, '-');
+
+    const listItem = document.createElement('li');
+    listItem.className = `watchlist-item${isExpanded ? ' is-expanded' : ''}`;
+    listItem.setAttribute('data-video-id', video.videoId);
+    listItem.setAttribute('data-timestamp', video.timestamp);
+
+    listItem.innerHTML = `
+        <div class="watchlist-card-header">
+            <div class="thumbnail-wrapper">
+                <img class="thumbnail" src="${safeThumbnail}" alt="${safeTitle}" />
+            </div>
+            <div class="video-info">
+                <h3 class="video-title">${safeTitle}</h3>
+                ${isStudyMode ? `
+                    <button class="expand-btn${isExpanded ? ' is-expanded' : ''}" type="button">
+                        <span>${isExpanded ? 'Collapse' : 'Expand'}</span>
+                        <img src="study-mode-chevron.svg" class="expand-btn-chevron" alt="" width="8" height="8" />
+                    </button>
+                ` : `
+                    <div class="video-timestamp">
+                        <img src="timestamp.svg" class="timestamp-icon" alt="timestamp" width="10" height="10" />
+                        <span class="timestamp-value">${safeTimestamp}</span>
+                    </div>
+                `}
+            </div>
+            <div class="video-actions">
+                <button class="three-dot-menu" type="button" title="More options">
+                    <img src="menu.svg" width="20" height="20" alt="Menu" />
+                </button>
+                <div class="dropdown-menu" style="display: none;">
+                    <div class="menu-section">
+                        <div class="category-options"></div>
+                    </div>
+                    <div class="menu-divider"></div>
+                    <button class="menu-item study-mode-menu-item" type="button">
+                        <span class="profile-menu-leading study-mode-leading">
+                            <img src="study-mode-icon.svg" width="12" height="12" alt="">
+                            <span>Study Mode</span>
+                            <span
+                                id="${studyModeInfoButtonId}"
+                                class="info-btn study-mode-info-btn"
+                                role="button"
+                                tabindex="0"
+                                aria-label="Study Mode for this video"
+                                title="Study Mode for this video"
+                            ><img src="Info.svg" width="14" height="14" alt="" aria-hidden="true"></span>
+                        </span>
+                        <span class="study-mode-controls">
+                            <span class="study-mode-pill" aria-hidden="true"></span>
+                        </span>
+                    </button>
+                    <div class="menu-divider"></div>
+                    <button class="menu-item delete-item" type="button">
+                        <img src="delete.svg" alt="Delete" />
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+        ${isStudyMode ? `
+            <div class="expanded-rows${isExpanded ? ' is-visible' : ''}" ${isExpanded ? '' : 'hidden'}>
+                ${buildExpandedRowsMarkup(video)}
+            </div>
+        ` : ''}
+    `;
+
+    const headerArea = listItem.querySelector('.watchlist-card-header');
+    const threeDotMenu = listItem.querySelector('.three-dot-menu');
+    const dropdownMenu = listItem.querySelector('.dropdown-menu');
+    const deleteItem = listItem.querySelector('.delete-item');
+    const studyModeMenuItem = listItem.querySelector('.study-mode-menu-item');
+    const studyModeMenuPill = studyModeMenuItem?.querySelector('.study-mode-pill');
+    const studyModeInfoButton = listItem.querySelector(`#${studyModeInfoButtonId}`);
+
+    headerArea.addEventListener('click', () => {
+        openVideo(video.videoId, effectiveTime);
+    });
+
+    threeDotMenu.onclick = (event) => {
+        event.stopPropagation();
+        toggleDropdown(dropdownMenu);
+        populateCategoryOptions(dropdownMenu.querySelector('.category-options'), video);
+        setStudyModePillState(studyModeMenuPill, video.studyMode === true);
+        if (dropdownMenu.style.display !== 'block' && activeStudyModeInfoAnchor && dropdownMenu.contains(activeStudyModeInfoAnchor)) {
+            hideStudyModeInfoPopover();
+        }
+    };
+
+    dropdownMenu.onclick = (event) => {
+        event.stopPropagation();
+    };
+
+    studyModeMenuItem.onclick = (event) => {
+        event.stopPropagation();
+        if (event.target.closest('.info-btn')) {
+            return;
+        }
+        toggleVideoStudyMode(video, category, { keepMenuOpen: true });
+        hideStudyModeInfoPopover();
+    };
+
+    bindStudyModeInfoButton(studyModeInfoButton, STUDY_MODE_VIDEO_INFO_COPY);
+
+    deleteItem.onclick = (event) => {
+        event.stopPropagation();
+        removeVideoFromWatchlist(video, category, event);
+        dropdownMenu.style.display = 'none';
+        hideStudyModeInfoPopover();
+    };
+
+    if (isStudyMode) {
+        const expandButton = listItem.querySelector('.expand-btn');
+        expandButton?.addEventListener('click', (event) => {
+            event.stopPropagation();
+
+            const isNowExpanded = !expandedStudyVideos.has(video.videoId);
+            if (isNowExpanded) {
+                expandedStudyVideos.add(video.videoId);
+            } else {
+                expandedStudyVideos.delete(video.videoId);
+            }
+
+            listItem.classList.toggle('is-expanded', isNowExpanded);
+            expandButton.classList.toggle('is-expanded', isNowExpanded);
+
+            const expandSpan = expandButton.querySelector('span');
+            if (expandSpan) {
+                expandSpan.textContent = isNowExpanded ? 'Collapse' : 'Expand';
+            }
+
+            const expandedRows = listItem.querySelector('.expanded-rows');
+            if (expandedRows) {
+                expandedRows.classList.toggle('is-visible', isNowExpanded);
+                if (isNowExpanded) {
+                    expandedRows.removeAttribute('hidden');
+                } else {
+                    expandedRows.setAttribute('hidden', '');
+                }
+            }
+        });
+
+        listItem.querySelectorAll('.timestamp-row').forEach((rowElement) => {
+            rowElement.addEventListener('click', (event) => {
+                event.stopPropagation();
+            });
+        });
+
+        listItem.querySelectorAll('.note-display').forEach((noteElement) => {
+            const savedAt = Number(noteElement.closest('.timestamp-row')?.dataset.savedAt || 0);
+            noteElement.addEventListener('click', (event) => {
+                event.stopPropagation();
+                activateInlineNoteEdit(noteElement, category, video.videoId, savedAt);
+            });
+        });
+
+        listItem.querySelectorAll('.timestamp-row-time').forEach((timeElement) => {
+            timeElement.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const time = Number(event.currentTarget.dataset.time || 0);
+                openVideo(video.videoId, time);
+            });
+        });
+    }
+
+    return listItem;
+}
+
+function renderVideosForCategory(selectedCategory, onComplete) {
     const done = () => {
         if (typeof onComplete === 'function') {
             onComplete();
@@ -245,107 +791,61 @@ function renderWatchlist(onComplete) {
     };
 
     cloudStorage.get(['categories', 'watchlist'], function (result) {
-        // Check if we need to migrate data from old format
         if (result.watchlist && result.watchlist.length > 0) {
-            // This is old format data, migrate it
             migrateData(result.watchlist, onComplete);
-            return; // renderWatchlist will be called again after migration
+            return;
         }
 
         const categories = result.categories || {};
         const watchlistElement = document.getElementById('watchlist');
-        watchlistElement.innerHTML = ''; // Clear existing items
+        watchlistElement.innerHTML = '';
 
-        // First check if we have any videos at all
         let totalVideos = 0;
-        Object.keys(categories).forEach(category => {
-            totalVideos += categories[category].length;
+        Object.keys(categories).forEach((categoryName) => {
+            totalVideos += categories[categoryName].length;
         });
 
         if (totalVideos === 0) {
-            const emptyState = document.createElement('div');
-            emptyState.className = 'empty-state-text';
-            emptyState.innerHTML = `
-                <img src="./instructions.svg" alt="instructions" class="empty-state-icon" width="300" draggable="false" />
-            `;
-            watchlistElement.appendChild(emptyState);
+            showWatchlistEmptyState(watchlistElement);
             done();
             return;
         }
 
-        // Render each category and its videos
-        Object.keys(categories).sort((a, b) => {
-            return a.localeCompare(b);
-        }).forEach(category => {
-            const videos = categories[category];
+        const renderWithStudyMode = (globalStudyMode) => {
+            let renderedCount = 0;
 
-            if (videos.length === 0) return; // Skip empty categories
+            Object.keys(categories).sort((left, right) => left.localeCompare(right)).forEach((categoryName) => {
+                if (selectedCategory !== 'all' && categoryName !== selectedCategory) {
+                    return;
+                }
 
-            // Add videos for this category (without header)
-            videos.forEach((video) => {
-                const listItem = document.createElement('li');
-                listItem.className = 'watchlist-item';
-                listItem.onclick = () => openVideo(video.videoId, video.currentTime);
-                listItem.setAttribute('data-video-id', video.videoId);
-                listItem.setAttribute('data-timestamp', video.timestamp);
-                const safeTitle = escapeHtml(video.title || 'Untitled video');
-                const safeThumbnail = escapeHtml(safeThumbnailUrl(video.thumbnail));
-                const safeTimestamp = escapeHtml(formatTime(video.currentTime));
-
-                listItem.innerHTML = `
-                    <img class="thumbnail" src="${safeThumbnail}" alt="${safeTitle}" />
-                    <div class="video-info">
-                        <h3 class="video-title">${safeTitle}</h3>
-                        <div class="video-timestamp">
-                            <img src="timestamp.svg" class="timestamp-icon" alt="timestamp" width="16" height="16" />
-                            <span class="timestamp-value">${safeTimestamp}</span>
-                        </div>
-                    </div>
-                    <div class="video-actions">
-                        <button class="three-dot-menu" title="More options">
-                            <img src="menu.svg" width="20" height="20" alt="Menu" />
-                        </button>
-                        <div class="dropdown-menu" style="display: none;">
-                            <div class="menu-section">
-                                <div class="category-options">
-                                    <!-- Categories will be populated here -->
-                                </div>
-                            </div>
-                            <div class="menu-divider"></div>
-                            <button class="menu-item delete-item">
-                                <img src="delete.svg" alt="Delete" />
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                `;
-
-                const threeDotMenu = listItem.querySelector('.three-dot-menu');
-                const dropdownMenu = listItem.querySelector('.dropdown-menu');
-                const deleteItem = listItem.querySelector('.delete-item');
-
-                threeDotMenu.onclick = (e) => {
-                    e.stopPropagation();
-                    toggleDropdown(dropdownMenu);
-                    populateCategoryOptions(dropdownMenu.querySelector('.category-options'), video);
-                };
-
-                // Prevent clicks inside dropdown from bubbling to video card
-                dropdownMenu.onclick = (e) => {
-                    e.stopPropagation();
-                };
-
-                deleteItem.onclick = (e) => {
-                    e.stopPropagation();
-                    removeVideoFromWatchlist(video.videoId, video.timestamp, category, e);
-                    dropdownMenu.style.display = 'none';
-                };
-
-                watchlistElement.appendChild(listItem);
+                const videos = Array.isArray(categories[categoryName]) ? categories[categoryName] : [];
+                videos.forEach((video) => {
+                    watchlistElement.appendChild(createWatchlistItem(video, categoryName, globalStudyMode));
+                    renderedCount += 1;
+                });
             });
-        });
-        done();
+
+            if (renderedCount === 0) {
+                showWatchlistEmptyState(watchlistElement);
+            }
+
+            done();
+        };
+
+        getStudyMode()
+            .then((globalStudyMode) => {
+                renderWithStudyMode(globalStudyMode);
+            })
+            .catch((error) => {
+                console.error('Failed to read Study Mode preference:', error);
+                renderWithStudyMode(false);
+            });
     });
+}
+
+function renderWatchlist(onComplete) {
+    renderVideosForCategory('all', onComplete);
 }
 
 function migrateData(watchlist, onComplete) {
@@ -471,11 +971,12 @@ function deleteCategory(categoryName) {
     pendingCategoryDeletion = categoryName;
 
     if (message) {
-        message.textContent = `Delete "${categoryName}" and remove the timestamps saved inside it?`;
+        const safeCategoryName = escapeHtml(categoryName);
+        message.innerHTML = `Delete "<strong>${safeCategoryName}</strong>" and remove the timestamps saved inside it?`;
     }
 
     if (modal) {
-        modal.style.display = 'block';
+        modal.style.display = 'flex';
     }
 
     if (confirmButton) {
@@ -521,7 +1022,7 @@ async function confirmDeleteCategory() {
     }
 }
 
-function filterByCategory(selectedCategory) {
+function filterByCategory(selectedCategory, onComplete) {
     // Update UI to show the selected category is active
     const categoryItems = document.querySelectorAll('.category-item');
     categoryItems.forEach(item => {
@@ -532,144 +1033,7 @@ function filterByCategory(selectedCategory) {
         }
     });
 
-    // To avoid any state inconsistencies, always re-render the entire watchlist
-    // and then show/hide sections based on the selected category
-    cloudStorage.get(['categories'], function (result) {
-        const categories = result.categories || {};
-        const watchlistElement = document.getElementById('watchlist');
-        let totalVideos = 0;
-
-        // Count total videos across all categories
-        Object.keys(categories).forEach(category => {
-            totalVideos += categories[category].length;
-        });
-
-        // If no videos at all, just show empty state and return
-        if (totalVideos === 0) {
-            watchlistElement.innerHTML = '';
-            const emptyState = document.createElement('div');
-            emptyState.className = 'empty-state-text';
-            emptyState.innerHTML = `
-                <img src="./instructions.svg" alt="instructions" class="empty-state-icon" width="300" draggable="false" />
-            `;
-            watchlistElement.appendChild(emptyState);
-            return;
-        }
-
-        // Check if there are videos in the selected specific category
-        if (selectedCategory !== 'all' &&
-            (!categories[selectedCategory] || categories[selectedCategory].length === 0)) {
-            // Selected category is empty, show empty state
-            watchlistElement.innerHTML = '';
-            const emptyState = document.createElement('div');
-            emptyState.className = 'empty-state-text';
-            emptyState.innerHTML = `
-                <img src="./instructions.svg" alt="instructions" class="empty-state-icon" width="300" draggable="false" />
-            `;
-            watchlistElement.appendChild(emptyState);
-            return;
-        }
-
-        // Re-render the entire watchlist
-        watchlistElement.innerHTML = ''; // Clear existing content
-
-        // Render each category and its videos
-        Object.keys(categories).sort((a, b) => {
-            return a.localeCompare(b);
-        }).forEach(category => {
-            if (selectedCategory !== 'all' && category !== selectedCategory) {
-                return;
-            }
-
-            const videos = categories[category];
-
-            if (videos.length === 0) return; // Skip empty categories
-
-            // Create a category section
-            const categorySection = document.createElement('div');
-            categorySection.className = 'category-section';
-            categorySection.setAttribute('data-category', category);
-
-            // Set display property based on selected category
-            if (selectedCategory === 'all' || selectedCategory === category) {
-                categorySection.style.display = 'block';
-            } else {
-                categorySection.style.display = 'none';
-            }
-
-            // Add category header
-            const categoryHeader = document.createElement('div');
-            categoryHeader.className = 'category-header';
-            const categoryHeaderTitle = document.createElement('div');
-            categoryHeaderTitle.className = 'category-header-title';
-            categoryHeaderTitle.textContent = category;
-            categoryHeader.appendChild(categoryHeaderTitle);
-            categorySection.appendChild(categoryHeader);
-
-            // Add videos for this category
-            videos.forEach((video) => {
-                const listItem = document.createElement('li');
-                listItem.className = 'watchlist-item';
-                listItem.onclick = () => openVideo(video.videoId, video.currentTime);
-                listItem.setAttribute('data-video-id', video.videoId);
-                listItem.setAttribute('data-timestamp', video.timestamp);
-                const safeTitle = escapeHtml(video.title || 'Untitled video');
-                const safeThumbnail = escapeHtml(safeThumbnailUrl(video.thumbnail));
-                const safeTimestamp = escapeHtml(formatTime(video.currentTime));
-
-                listItem.innerHTML = `
-                    <img class="thumbnail" src="${safeThumbnail}" alt="${safeTitle}" />
-                    <div class="video-info">
-                        <h3 class="video-title">${safeTitle}</h3>
-                        <div class="video-timestamp">
-                            <img src="timestamp.svg" class="timestamp-icon" alt="timestamp" width="16" height="16" />
-                            <span class="timestamp-value">${safeTimestamp}</span>
-                        </div>
-                    </div>
-                    <div class="video-actions">
-                        <button class="three-dot-menu" title="More options">
-                            <img src="menu.svg" width="20" height="20" alt="Menu" />
-                        </button>
-                        <div class="dropdown-menu" style="display: none;">
-                            <div class="menu-section">
-                                <div class="category-options">
-                                    <!-- Categories will be populated here -->
-                                </div>
-                            </div>
-                            <div class="menu-divider"></div>
-                            <button class="menu-item delete-item">
-                                <img src="delete.svg" alt="Delete" />
-                                Delete
-                            </button>
-                        </div>
-                    </div>
-                `;
-
-                const threeDotMenu = listItem.querySelector('.three-dot-menu');
-                const dropdownMenu = listItem.querySelector('.dropdown-menu');
-                const deleteItem = listItem.querySelector('.delete-item');
-
-                threeDotMenu.onclick = (e) => {
-                    e.stopPropagation();
-                    toggleDropdown(dropdownMenu);
-                    populateCategoryOptions(dropdownMenu.querySelector('.category-options'), video);
-                };
-
-                // Prevent clicks inside dropdown from bubbling to video card
-                dropdownMenu.onclick = (e) => {
-                    e.stopPropagation();
-                };
-
-                deleteItem.onclick = (e) => {
-                    e.stopPropagation();
-                    removeVideoFromWatchlist(video.videoId, video.timestamp, category, e);
-                    dropdownMenu.style.display = 'none';
-                };
-
-                watchlistElement.appendChild(listItem);
-            });
-        });
-    });
+    renderVideosForCategory(selectedCategory, onComplete);
 }
 
 // Helper functions no longer needed since we're always re-rendering
@@ -778,17 +1142,47 @@ function toggleEditMode() {
     }
 }
 
-// Dropdown menu functionality
-function toggleDropdown(dropdown) {
-    // Close all other dropdowns
-    document.querySelectorAll('.dropdown-menu').forEach(menu => {
-        if (menu !== dropdown) {
+function closeVideoDropdownMenus(exceptDropdown = null) {
+    let didCloseContainingDropdown = false;
+    document.querySelectorAll('.dropdown-menu').forEach((menu) => {
+        if (menu !== exceptDropdown) {
+            if (menu.style.display === 'block' && activeStudyModeInfoAnchor && menu.contains(activeStudyModeInfoAnchor)) {
+                didCloseContainingDropdown = true;
+            }
             menu.style.display = 'none';
         }
     });
 
+    if (didCloseContainingDropdown) {
+        hideStudyModeInfoPopover();
+    }
+}
+
+function closeProfileDropdownFromOutside() {
+    hideStudyModeInfoPopover();
+    if (typeof closeProfileDropdownHandler === 'function') {
+        closeProfileDropdownHandler();
+        return;
+    }
+
+    const profileDropdown = document.getElementById('profile-dropdown');
+    const profileButton = document.getElementById('profile-button');
+    if (profileDropdown) {
+        profileDropdown.hidden = true;
+    }
+    if (profileButton) {
+        profileButton.setAttribute('aria-expanded', 'false');
+    }
+}
+
+// Dropdown menu functionality
+function toggleDropdown(dropdown) {
+    closeProfileDropdownFromOutside();
+    const isOpen = dropdown.style.display === 'block';
+    closeVideoDropdownMenus(dropdown);
+
     // Toggle current dropdown
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    dropdown.style.display = isOpen ? 'none' : 'block';
 }
 
 // Populate category options in dropdown
@@ -868,6 +1262,44 @@ function assignVideoToSingleCategory(video, targetCategory) {
 
         cloudStorage.set({ categories: categories }, function () {
             updateCategoryCounts();
+            filterByCategory(getActiveCategoryFilter());
+        });
+    });
+}
+
+function toggleVideoStudyMode(video, category, options = {}) {
+    const keepMenuOpen = options?.keepMenuOpen === true;
+    cloudStorage.get(['categories'], function (result) {
+        const categories = result.categories || {};
+        const videos = Array.isArray(categories[category]) ? categories[category] : [];
+        const targetVideo = videos.find((candidateVideo) => candidateVideo.videoId === video.videoId);
+
+        if (!targetVideo) {
+            return;
+        }
+
+        const latestTimestampEntry = getLatestTimestampEntry(targetVideo);
+        targetVideo.studyMode = targetVideo.studyMode !== true;
+
+        if (latestTimestampEntry) {
+            targetVideo.currentTime = latestTimestampEntry.time;
+            targetVideo.timestamp = latestTimestampEntry.savedAt;
+        }
+
+        const activeCategory = getActiveCategoryFilter();
+        cloudStorage.set({ categories }, function () {
+            filterByCategory(activeCategory, () => {
+                if (!keepMenuOpen) {
+                    return;
+                }
+
+                const escapedVideoId = escapeForAttributeSelector(video.videoId);
+                const targetListItem = document.querySelector(`.watchlist-item[data-video-id="${escapedVideoId}"]`);
+                const targetThreeDotMenu = targetListItem?.querySelector('.three-dot-menu');
+                if (targetThreeDotMenu) {
+                    targetThreeDotMenu.click();
+                }
+            });
         });
     });
 }
@@ -1001,19 +1433,30 @@ function restoreVideo(video) {
 
 // Close dropdowns when clicking outside
 document.addEventListener('click', function (e) {
+    if (e.target.closest('#study-mode-info-popover')) {
+        return;
+    }
     if (!e.target.closest('.video-actions')) {
-        document.querySelectorAll('.dropdown-menu').forEach(menu => {
-            menu.style.display = 'none';
-        });
+        closeVideoDropdownMenus();
     }
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
-    const signedOutState = document.getElementById('signed-out-state');
-    const signedInState = document.getElementById('signed-in-state');
     const signInBtn = document.getElementById('sign-in-btn');
     const signOutBtn = document.getElementById('sign-out-btn');
     const userPhoto = document.getElementById('user-photo');
+    const profileButton = document.getElementById('profile-button');
+    const profileButtonWrapper = document.getElementById('profile-btn-wrapper');
+    const profileDropdown = document.getElementById('profile-dropdown');
+    const profileDropdownSignedIn = document.getElementById('profile-dropdown-signed-in');
+    const profileDropdownSignedOut = document.getElementById('profile-dropdown-signed-out');
+    const profileUserInfo = document.getElementById('profile-user-info');
+    const studyModeToggleIn = document.getElementById('study-mode-toggle-in');
+    const studyModeToggleOut = document.getElementById('study-mode-toggle-out');
+    const studyModeInfoBtnIn = document.getElementById('study-mode-info-btn-in');
+    const studyModeInfoBtnOut = document.getElementById('study-mode-info-btn-out');
+    const studyModePillIn = document.getElementById('study-mode-pill-in');
+    const studyModePillOut = document.getElementById('study-mode-pill-out');
     const addCategoryBtn = document.getElementById('addCategoryBtn');
     const editCategoriesBtn = document.getElementById('editCategoriesBtn');
     const saveCategoriesBtn = document.getElementById('saveCategoriesBtn');
@@ -1027,6 +1470,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const closeDeleteCategoryModalBtn = document.getElementById('closeDeleteCategoryModalBtn');
     const mainContent = document.querySelector('.main-content');
     const categoriesContainer = document.querySelector('.categories-container');
+    const watchlistContainer = document.getElementById('watchlist-container');
     const dataLoadingState = document.getElementById('data-loading-state');
     const dataLoadingText = dataLoadingState?.querySelector('.data-loading-text');
 
@@ -1101,37 +1545,56 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     let isAuthenticated = false;
+    let profileDropdownOpen = false;
+
+    function closeProfileDropdown() {
+        profileDropdown.hidden = true;
+        profileDropdownOpen = false;
+        profileButton.setAttribute('aria-expanded', 'false');
+        hideStudyModeInfoPopover();
+    }
+
+    function openProfileDropdown() {
+        profileDropdown.hidden = false;
+        profileDropdownOpen = true;
+        profileButton.setAttribute('aria-expanded', 'true');
+    }
+    closeProfileDropdownHandler = closeProfileDropdown;
+
+    async function syncStudyModePills() {
+        try {
+            const studyModeEnabled = await getStudyMode();
+            setStudyModePillState(studyModePillIn, studyModeEnabled);
+            setStudyModePillState(studyModePillOut, studyModeEnabled);
+        } catch (error) {
+            console.error('Failed to sync Study Mode toggle:', error);
+        }
+    }
 
     function updateAuthUI(user) {
         isAuthenticated = Boolean(user);
+        const tooltipParts = [];
+        if (user?.displayName) tooltipParts.push(user.displayName);
+        if (user?.email) tooltipParts.push(user.email);
+        const tooltipText = tooltipParts.join('\n') || 'Profile menu';
 
         if (user) {
-            signedOutState.style.display = 'none';
-            signedInState.style.display = 'flex';
-
-            if (user.photoURL) {
-                const tooltipParts = [];
-                if (user.displayName) tooltipParts.push(user.displayName);
-                if (user.email) tooltipParts.push(user.email);
-                const tooltipText = tooltipParts.join('\n') || 'Signed in account';
-
-                userPhoto.src = user.photoURL;
-                userPhoto.style.display = 'block';
-                userPhoto.title = tooltipText;
-                userPhoto.setAttribute('aria-label', tooltipText);
-            } else {
-                userPhoto.removeAttribute('src');
-                userPhoto.style.display = 'none';
-                userPhoto.removeAttribute('title');
-                userPhoto.removeAttribute('aria-label');
-            }
+            profileDropdownSignedOut.hidden = true;
+            profileDropdownSignedIn.hidden = false;
+            profileUserInfo.innerHTML = `
+                <div class="profile-user-name">${escapeHtml(user.displayName || 'Signed in')}</div>
+                <div class="profile-user-email">${escapeHtml(user.email || '')}</div>
+            `;
         } else {
-            signedInState.style.display = 'none';
-            signedOutState.style.display = 'flex';
-            userPhoto.removeAttribute('src');
-            userPhoto.removeAttribute('title');
-            userPhoto.removeAttribute('aria-label');
+            profileDropdownSignedIn.hidden = true;
+            profileDropdownSignedOut.hidden = false;
+            profileUserInfo.textContent = '';
         }
+
+        userPhoto.src = user?.photoURL || PROFILE_PLACEHOLDER_IMAGE;
+        userPhoto.title = tooltipText;
+        userPhoto.setAttribute('aria-label', tooltipText);
+        profileButton.title = tooltipText;
     }
 
     function showStatusMessage(message, tone = 'info') {
@@ -1262,6 +1725,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         hideStatusMessage();
     }
 
+    async function toggleGlobalStudyMode() {
+        const nextValue = !(await getStudyMode());
+        await setStudyMode(nextValue);
+        await syncStudyModePills();
+        filterByCategory(getActiveCategoryFilter());
+    }
+
     function setDataLoadingState(isLoading, message = 'Loading timestamps...') {
         if (dataLoadingText) {
             dataLoadingText.textContent = message;
@@ -1301,9 +1771,58 @@ document.addEventListener('DOMContentLoaded', async () => {
     function setButtonsDisabled(isDisabled) {
         signInBtn.disabled = isDisabled;
         signOutBtn.disabled = isDisabled;
+        studyModeToggleIn.disabled = isDisabled;
+        studyModeToggleOut.disabled = isDisabled;
     }
 
     setDataLoadingState(true);
+
+    profileButton.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        closeVideoDropdownMenus();
+
+        if (profileDropdownOpen) {
+            closeProfileDropdown();
+            return;
+        }
+
+        openProfileDropdown();
+        await syncStudyModePills();
+    });
+
+    document.addEventListener('click', (event) => {
+        if (event.target.closest('#study-mode-info-popover')) {
+            return;
+        }
+        if (!event.target.closest('#profile-btn-wrapper')) {
+            closeProfileDropdown();
+        }
+    });
+
+    [studyModeToggleIn, studyModeToggleOut].forEach((toggleButton) => {
+        toggleButton.addEventListener('click', async (event) => {
+            event.stopPropagation();
+
+            try {
+                await toggleGlobalStudyMode();
+            } catch (error) {
+                handleAuthError('Could not update Study Mode', error);
+            }
+        });
+    });
+
+    [studyModeInfoBtnIn, studyModeInfoBtnOut].forEach((infoButton) => {
+        bindStudyModeInfoButton(infoButton, STUDY_MODE_GLOBAL_INFO_COPY);
+    });
+
+    if (watchlistContainer) {
+        watchlistContainer.addEventListener('scroll', () => {
+            hideStudyModeInfoPopover();
+        }, { passive: true });
+    }
+    window.addEventListener('scroll', () => {
+        hideStudyModeInfoPopover();
+    }, { passive: true, capture: true });
 
     signInBtn.addEventListener('click', async () => {
         try {
@@ -1321,6 +1840,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             updateAuthUI(user);
+            closeProfileDropdown();
             try {
                 await runMigrationFlow();
             } catch (migrationError) {
@@ -1328,6 +1848,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.error('Migration failed:', migrationError);
             }
             await loadDataIntoUI();
+            await syncStudyModePills();
             await refreshSignedOutHint();
         } catch (error) {
             handleAuthError('Sign-in failed', error);
@@ -1342,7 +1863,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             setButtonsDisabled(true);
             await signOutInBackground();
             updateAuthUI(null);
+            closeProfileDropdown();
             await loadDataIntoUI();
+            await syncStudyModePills();
             await refreshSignedOutHint();
             hideStatusMessage();
         } catch (error) {
@@ -1357,6 +1880,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const user = authStatus.authenticated ? authStatus.user : null;
         updateAuthUI(user);
         await loadDataIntoUI();
+        await syncStudyModePills();
     } catch (error) {
         console.error('Failed to load auth status', error);
         try {
@@ -1366,6 +1890,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         updateAuthUI(null);
         await loadDataIntoUI();
+        await syncStudyModePills();
     } finally {
         await loadBreakingNotice();
         await refreshSignedOutHint();

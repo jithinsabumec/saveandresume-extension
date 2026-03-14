@@ -4,10 +4,6 @@
 <head>
     <title>Save & Resume</title>
     <link rel="stylesheet" href="popup.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200..800&family=Space+Mono:wght@400&display=swap"
-        rel="stylesheet">
     <meta charset="UTF-8">
 </head>
 
@@ -15,21 +11,59 @@
     <div class="container">
         <header class="main-header">
             <div class="header-left">
-                <img src="icon_word.svg" width="82" alt="Save & Resume icon">
+                <img src="logo(icon+wordmark).svg" width="82" alt="Save & Resume icon">
             </div>
             <div class="header-right">
-                <div id="auth-section">
-                    <div id="signed-out-state" class="auth-state">
-                        <button id="sign-in-btn" class="sign-in-button">
-                            <img src="google.svg" width="14" height="14" alt="Google">
-                            Sign in
-                        </button>
-                    </div>
-                    <div id="signed-in-state" class="auth-state">
-                        <img id="user-photo" alt="User avatar" />
-                        <button id="sign-out-btn" class="sign-out-button">
-                            <img src="signout.svg" width="16" height="16" alt="Sign out">
-                        </button>
+                <div id="profile-btn-wrapper" class="profile-button-wrapper">
+                    <button id="profile-button" class="profile-button" type="button" aria-haspopup="true"
+                        aria-expanded="false" aria-label="Profile menu">
+                        <img id="user-photo" alt="Profile photo" />
+                    </button>
+                    <div id="profile-dropdown" class="profile-dropdown" hidden>
+                        <div id="profile-dropdown-signed-in" class="profile-dropdown-state" hidden>
+                            <div id="profile-user-info" class="profile-user-info"></div>
+                            <div class="profile-divider"></div>
+                            <button id="study-mode-toggle-in" class="profile-menu-item profile-menu-item--with-pill"
+                                type="button">
+                                <span class="profile-menu-leading study-mode-leading">
+                                    <img src="study-mode-icon.svg" width="14" height="14" alt="">
+                                    <span>Study Mode</span>
+                                    <span id="study-mode-info-btn-in" class="info-btn" role="button" tabindex="0"
+                                        aria-label="What is Study Mode?" title="What is Study Mode?"><img src="Info.svg"
+                                            width="14" height="14" alt="" aria-hidden="true"></span>
+                                </span>
+                                <span class="study-mode-controls">
+                                    <span id="study-mode-pill-in" class="study-mode-pill" aria-hidden="true"></span>
+                                </span>
+                            </button>
+                            <div class="profile-divider"></div>
+                            <button id="sign-out-btn" class="profile-menu-item" type="button">
+                                <img src="signout.svg" width="14" height="14" alt="">
+                                <span>Log out</span>
+                            </button>
+                        </div>
+                        <div id="profile-dropdown-signed-out" class="profile-dropdown-state">
+                            <button id="study-mode-toggle-out" class="profile-menu-item profile-menu-item--with-pill"
+                                type="button">
+                                <span class="profile-menu-leading study-mode-leading">
+                                    <img src="study-mode-icon.svg" width="14" height="14" alt="">
+                                    <span>Study Mode</span>
+                                    <span id="study-mode-info-btn-out" class="info-btn" role="button" tabindex="0"
+                                        aria-label="What is Study Mode?" title="What is Study Mode?"><img src="Info.svg"
+                                            width="14" height="14" alt="" aria-hidden="true"></span>
+                                </span>
+                                <span class="study-mode-controls">
+                                    <span id="study-mode-pill-out" class="study-mode-pill" aria-hidden="true"></span>
+                                </span>
+                            </button>
+                            <div class="profile-divider"></div>
+                            <button id="sign-in-btn" class="profile-menu-item" type="button">
+                                <span class="profile-menu-leading">
+                                    <img src="google.svg" width="14" height="14" alt="Google">
+                                    <span>Sign In with Google</span>
+                                </span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -78,7 +112,7 @@
                             rel="noopener noreferrer">Let me know!</a>
                     </div>
                     <div>•</div>
-                    <div>v1.2.5</div>
+                    <div>v1.3.0</div>
                 </div>
             </footer>
         </div>
