@@ -1221,6 +1221,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "addTimestamp") {
         triggerShortcutCategoryDialog();
     }
+
+    if (request.action === 'seekToTimestamp') {
+        if (!isExtensionContextValid()) {
+            handleContextInvalidation();
+            return;
+        }
+
+        const video = document.querySelector('video');
+
+        if (!video) {
+            console.warn('seekToTimestamp: no video element found on page.');
+            return;
+        }
+
+        const targetTime = Number(request.time);
+        if (!isFinite(targetTime) || targetTime < 0) {
+            console.warn('seekToTimestamp: invalid time value received:', request.time);
+            return;
+        }
+
+        video.currentTime = targetTime;
+
+        if (video.paused) {
+            video.play().catch((err) => {
+                console.warn('seekToTimestamp: play() failed:', err.message);
+            });
+        }
+
+        if (typeof sendResponse === 'function') {
+            sendResponse({ ok: true });
+        }
+    }
 });
 
 function isAddTimestampShortcut(event) {
