@@ -1,0 +1,66 @@
+{
+  "../../../../../@crx/manifest": {
+    "file": "assets/crx-manifest.js-BGzcWwcL.js",
+    "name": "crx-manifest.js",
+    "src": "../../../../../@crx/manifest",
+    "isEntry": true
+  },
+  "background.js": {
+    "file": "assets/background.js-DPT0GVNC.js",
+    "name": "background.js",
+    "src": "background.js",
+    "isEntry": true
+  },
+  "content.js": {
+    "file": "assets/content.js-LwdwAXyt.js",
+    "name": "content.js",
+    "src": "content.js",
+    "isEntry": true
+  },
+  "data-layer.js": {
+    "file": "assets/data-layer.js-BiQRcgjC.js",
+    "name": "data-layer.js",
+    "src": "data-layer.js",
+    "isEntry": true
+  },
+  "google.svg": {
+    "file": "assets/google-BL7BeOfl.svg",
+    "src": "google.svg"
+  },
+  "instructions.svg": {
+    "file": "assets/instructions-CQmELx0M.svg",
+    "src": "instructions.svg"
+  },
+  "logo(icon+wordmark).svg": {
+    "file": "assets/logo(icon_wordmark)-BEap1k7i.svg",
+    "src": "logo(icon+wordmark).svg"
+  },
+  "popup.html": {
+    "file": "assets/popup.html-DBk6eFjy.js",
+    "name": "popup.html",
+    "src": "popup.html",
+    "isEntry": true,
+    "dynamicImports": [
+      "src/main.tsx"
+    ]
+  },
+  "src/SaansCollectionVF-TRIAL.ttf": {
+    "file": "assets/SaansCollectionVF-TRIAL-DuESw-j5.ttf",
+    "src": "src/SaansCollectionVF-TRIAL.ttf"
+  },
+  "src/main.tsx": {
+    "file": "assets/main-CA46HE-z.js",
+    "name": "main",
+    "src": "src/main.tsx",
+    "isDynamicEntry": true,
+    "css": [
+      "assets/main-D9NK3iq9.css"
+    ],
+    "assets": [
+      "assets/google-BL7BeOfl.svg",
+      "assets/logo(icon_wordmark)-BEap1k7i.svg",
+      "assets/instructions-CQmELx0M.svg",
+      "assets/SaansCollectionVF-TRIAL-DuESw-j5.ttf"
+    ]
+  }
+}
