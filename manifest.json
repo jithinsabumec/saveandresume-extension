@@ -43,6 +43,9 @@
             "128": "icon.png"
         }
     },
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; connect-src 'self' https://us.i.posthog.com https://us-assets.i.posthog.com https://firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com;"
+    },
     "content_scripts": [
         {
             "matches": [
@@ -55,6 +58,8 @@
         }
     ],
     "host_permissions": [
+        "https://us.i.posthog.com/*",
+        "https://us-assets.i.posthog.com/*",
         "https://firestore.googleapis.com/*",
         "https://securetoken.googleapis.com/*",
         "https://identitytoolkit.googleapis.com/*"

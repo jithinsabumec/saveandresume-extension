@@ -2,6 +2,11 @@ const AUTH_SUCCESS = 'AUTH_SUCCESS';
 const WELCOME_PAGE_URL = 'https://saveandresume.vercel.app/welcome';
 const STUDY_MODE_PAGE_URL = 'https://saveandresume.vercel.app/study-mode';
 const STUDY_MODE_UPDATE_VERSION = '1.3.0';
+const PENDING_SIGN_IN_ANALYTICS_KEY = 'pendingSignInAnalytics';
+const ANALYTICS_QUEUE_KEY = 'analyticsQueue';
+const ANALYTICS_DISTINCT_ID_KEY = 'analyticsDistinctId';
+const POSTHOG_TOKEN = 'phc_vnb5QI0svxFHFzYvCOQEYyq9vb4P8sY7hyPmHZnvC4l';
+const POSTHOG_API_HOST = 'https://us.i.posthog.com';
 
 const BREAKING_UPDATES = {
     '2.0.0': {
@@ -52,6 +57,7 @@ const AUTH_SESSION_KEY = 'authSession';
 
 let watchlistWindow = null;
 let firebaseConfigCache = null;
+let analyticsQueueFlushPromise = Promise.resolve({ processed: 0, remaining: 0 });
 
 const REQUIRED_FIREBASE_FIELDS = [
     'apiKey',
@@ -164,6 +170,174 @@ async function saveAuthSession(session) {
 
 async function clearAuthSession() {
     await removeStorageLocal([AUTH_SESSION_KEY]);
+}
+
+async function savePendingSignInAnalytics(session) {
+    await setStorageLocal({
+        [PENDING_SIGN_IN_ANALYTICS_KEY]: {
+            uid: session.uid,
+            email: session.email || '',
+            displayName: session.displayName || '',
+            queuedAt: Date.now()
+        }
+    });
+}
+
+async function clearPendingSignInAnalytics() {
+    await removeStorageLocal([PENDING_SIGN_IN_ANALYTICS_KEY]);
+}
+
+function getExtensionVersion() {
+    try {
+        return chrome.runtime.getManifest().version;
+    } catch {
+        return 'unknown';
+    }
+}
+
+function createAnalyticsUuid() {
+    try {
+        if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+            return crypto.randomUUID();
+        }
+    } catch {
+        // Fall through to the timestamp-based fallback below.
+    }
+
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function isAnalyticsQueueItem(value) {
+    return Boolean(
+        value &&
+        typeof value === 'object' &&
+        typeof value.event === 'string' &&
+        (value.properties === undefined || (
+            typeof value.properties === 'object' &&
+            value.properties !== null &&
+            !Array.isArray(value.properties)
+        ))
+    );
+}
+
+function matchesAnalyticsQueueItem(item, targetItem) {
+    if (!isAnalyticsQueueItem(item) || !isAnalyticsQueueItem(targetItem)) {
+        return false;
+    }
+
+    return (
+        item.event === targetItem.event &&
+        Number(item.queuedAt) === Number(targetItem.queuedAt) &&
+        JSON.stringify(item.properties || {}) === JSON.stringify(targetItem.properties || {})
+    );
+}
+
+async function removeAnalyticsQueueItem(targetItem) {
+    if (!isAnalyticsQueueItem(targetItem)) {
+        return false;
+    }
+
+    const result = await getStorageLocal([ANALYTICS_QUEUE_KEY]);
+    const queue = Array.isArray(result[ANALYTICS_QUEUE_KEY])
+        ? result[ANALYTICS_QUEUE_KEY].filter(isAnalyticsQueueItem)
+        : [];
+
+    let removed = false;
+    const nextQueue = queue.filter((item) => {
+        if (!removed && matchesAnalyticsQueueItem(item, targetItem)) {
+            removed = true;
+            return false;
+        }
+
+        return true;
+    });
+
+    if (removed) {
+        await setStorageLocal({ [ANALYTICS_QUEUE_KEY]: nextQueue });
+    }
+
+    return removed;
+}
+
+async function getAnalyticsDistinctId() {
+    const session = await getAuthSession();
+    if (validateAuthSession(session)) {
+        return session.uid;
+    }
+
+    const result = await getStorageLocal([ANALYTICS_DISTINCT_ID_KEY]);
+    const existingDistinctId = result[ANALYTICS_DISTINCT_ID_KEY];
+    if (typeof existingDistinctId === 'string' && existingDistinctId.trim() !== '') {
+        return existingDistinctId;
+    }
+
+    const nextDistinctId = createAnalyticsUuid();
+    await setStorageLocal({ [ANALYTICS_DISTINCT_ID_KEY]: nextDistinctId });
+    return nextDistinctId;
+}
+
+async function sendAnalyticsEvent(eventName, properties = {}) {
+    const distinctId = await getAnalyticsDistinctId();
+    const payload = {
+        uuid: createAnalyticsUuid(),
+        event: String(eventName),
+        properties: {
+            token: POSTHOG_TOKEN,
+            distinct_id: distinctId,
+            extension_version: getExtensionVersion(),
+            ...properties
+        },
+        timestamp: new Date().toISOString()
+    };
+
+    const response = await fetch(`${POSTHOG_API_HOST}/e/?ip=0`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+        throw new Error(`PostHog request failed with status ${response.status}`);
+    }
+}
+
+async function flushAnalyticsQueue() {
+    const result = await getStorageLocal([ANALYTICS_QUEUE_KEY]);
+    const queue = Array.isArray(result[ANALYTICS_QUEUE_KEY])
+        ? result[ANALYTICS_QUEUE_KEY].filter(isAnalyticsQueueItem)
+        : [];
+
+    if (queue.length === 0) {
+        return { processed: 0, remaining: 0 };
+    }
+
+    const remainingQueue = [];
+
+    for (const item of queue) {
+        try {
+            await sendAnalyticsEvent(item.event, item.properties || {});
+        } catch (error) {
+            console.warn('Failed to flush analytics queue item:', item.event, error);
+            remainingQueue.push(item);
+        }
+    }
+
+    await setStorageLocal({ [ANALYTICS_QUEUE_KEY]: remainingQueue });
+
+    return {
+        processed: queue.length - remainingQueue.length,
+        remaining: remainingQueue.length
+    };
+}
+
+function scheduleAnalyticsQueueFlush() {
+    analyticsQueueFlushPromise = analyticsQueueFlushPromise
+        .catch(() => ({ processed: 0, remaining: 0 }))
+        .then(() => flushAnalyticsQueue());
+
+    return analyticsQueueFlushPromise;
 }
 
 function validateAuthSession(session) {
@@ -527,6 +701,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         if (message.type === 'AUTH_SIGN_IN') {
             const session = await signInAndPersistAuthSession();
+            await savePendingSignInAnalytics(session);
             sendOk(sendResponse, {
                 user: {
                     uid: session.uid,
@@ -549,6 +724,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
 
             await clearAuthSession();
+            await clearPendingSignInAnalytics();
             try {
                 await clearCachedIdentityTokens();
             } catch (error) {
@@ -560,7 +736,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         if (message.type === 'AUTH_CLEAR') {
             await clearAuthSession();
+            await clearPendingSignInAnalytics();
             sendOk(sendResponse);
+            return;
+        }
+
+        if (message.type === 'ANALYTICS_FLUSH_QUEUE') {
+            const result = await scheduleAnalyticsQueueFlush();
+            sendOk(sendResponse, result);
+            return;
+        }
+
+        if (message.type === 'ANALYTICS_CAPTURE_QUEUED_EVENT') {
+            if (!isAnalyticsQueueItem(message.payload)) {
+                sendError(sendResponse, 'INVALID_ANALYTICS_EVENT');
+                return;
+            }
+
+            await sendAnalyticsEvent(message.payload.event, message.payload.properties || {});
+            await removeAnalyticsQueueItem(message.payload);
+            sendOk(sendResponse, { captured: true });
             return;
         }
 

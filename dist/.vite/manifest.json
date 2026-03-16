@@ -1,24 +1,24 @@
 {
   "../../../../../@crx/manifest": {
-    "file": "assets/crx-manifest.js-BGzcWwcL.js",
+    "file": "assets/crx-manifest.js-D9gyrXTF.js",
     "name": "crx-manifest.js",
     "src": "../../../../../@crx/manifest",
     "isEntry": true
   },
   "background.js": {
-    "file": "assets/background.js-DPT0GVNC.js",
+    "file": "assets/background.js-X5Nq1w1E.js",
     "name": "background.js",
     "src": "background.js",
     "isEntry": true
   },
   "content.js": {
-    "file": "assets/content.js-LwdwAXyt.js",
+    "file": "assets/content.js-CSXWzdhd.js",
     "name": "content.js",
     "src": "content.js",
     "isEntry": true
   },
   "data-layer.js": {
-    "file": "assets/data-layer.js-BiQRcgjC.js",
+    "file": "assets/data-layer.js-B3i5Bzy5.js",
     "name": "data-layer.js",
     "src": "data-layer.js",
     "isEntry": true
@@ -36,25 +36,12 @@
     "src": "logo(icon+wordmark).svg"
   },
   "popup.html": {
-    "file": "assets/popup.html-DBk6eFjy.js",
+    "file": "assets/popup.html-prUK5FiB.js",
     "name": "popup.html",
     "src": "popup.html",
     "isEntry": true,
-    "dynamicImports": [
-      "src/main.tsx"
-    ]
-  },
-  "src/SaansCollectionVF-TRIAL.ttf": {
-    "file": "assets/SaansCollectionVF-TRIAL-DuESw-j5.ttf",
-    "src": "src/SaansCollectionVF-TRIAL.ttf"
-  },
-  "src/main.tsx": {
-    "file": "assets/main-CA46HE-z.js",
-    "name": "main",
-    "src": "src/main.tsx",
-    "isDynamicEntry": true,
     "css": [
-      "assets/main-D9NK3iq9.css"
+      "assets/popup-1-0vVnca.css"
     ],
     "assets": [
       "assets/google-BL7BeOfl.svg",
@@ -62,5 +49,9 @@
       "assets/instructions-CQmELx0M.svg",
       "assets/SaansCollectionVF-TRIAL-DuESw-j5.ttf"
     ]
+  },
+  "src/SaansCollectionVF-TRIAL.ttf": {
+    "file": "assets/SaansCollectionVF-TRIAL-DuESw-j5.ttf",
+    "src": "src/SaansCollectionVF-TRIAL.ttf"
   }
 }

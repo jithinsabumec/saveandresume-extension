@@ -1,5 +1,6 @@
 import type React from 'react'
 import { formatTime } from '../lib/format'
+import { track } from '../lib/analytics'
 import { safeThumbnailUrl } from '../lib/escape'
 import { resolveLegacyVideoStudyMode } from '../lib/storage'
 import type { Categories, InfoButtonProps, VideoEntry, VideoTimestampEntry } from '../types'
@@ -19,7 +20,7 @@ interface WatchlistItemProps {
   noteDraft: string
   noteInputRef: React.RefCallback<HTMLTextAreaElement>
   studyModeInfoButtonProps: InfoButtonProps
-  onOpenVideo: (videoId: string, currentTime: number) => void
+  onOpenVideo: (videoId: string, currentTime: number, isStudyMode?: boolean) => void
   onToggleDropdown: (key: string) => void
   onDelete: (video: VideoEntry, category: string) => void
   onCategoryChange: (video: VideoEntry, targetCategory: string) => void
@@ -27,7 +28,14 @@ interface WatchlistItemProps {
   onToggleExpand: (videoId: string) => void
   onStartNoteEdit: (video: VideoEntry, category: string, savedAt: number, note: string) => void
   onNoteDraftChange: (value: string, textarea: HTMLTextAreaElement | null) => void
-  onFinishNoteEdit: (video: VideoEntry, category: string, savedAt: number, nextNote: string, shouldSave: boolean) => void
+  onFinishNoteEdit: (
+    video: VideoEntry,
+    category: string,
+    savedAt: number,
+    nextNote: string,
+    shouldSave: boolean,
+    originalNoteValue: string
+  ) => void
 }
 
 function getNormalizedVideoTimestampEntries(video: VideoEntry): VideoTimestampEntry[] {
@@ -90,6 +98,7 @@ export default function WatchlistItem({
   const effectiveTime = Math.max(0, Number(video.currentTime) || latestTimestampEntry?.time || 0)
   const isStudyMode = resolveLegacyVideoStudyMode(video, globalStudyMode)
   const isExpandedForRender = isStudyMode && isExpanded
+  const timestampEntries = getVideoTimestampEntries(video)
   const itemKey = `${video.videoId}-${video.timestamp}`
   const studyModeInfoButtonId = `study-mode-info-btn-video-${String(video.videoId || 'video')}-${String(video.timestamp || 0)}`.replace(
     /[^a-zA-Z0-9_-]/g,
@@ -120,9 +129,19 @@ export default function WatchlistItem({
         isStudyMode={isStudyMode}
         isExpanded={isExpandedForRender}
         timestampText={formatTime(effectiveTime)}
-        onOpenVideo={() => onOpenVideo(video.videoId, effectiveTime)}
+        onOpenVideo={() => onOpenVideo(video.videoId, effectiveTime, isStudyMode)}
         onToggleExpand={(event) => {
           event.stopPropagation()
+          const willExpand = !isExpanded
+          if (willExpand) {
+            const entries = getVideoTimestampEntries(video)
+            track('card_expanded', {
+              has_notes: entries.some((entry) => entry.note && entry.note.length > 0),
+              timestamp_count: entries.length
+            })
+          } else {
+            track('card_collapsed')
+          }
           onToggleExpand(video.videoId)
         }}
       >
@@ -152,6 +171,10 @@ export default function WatchlistItem({
             if ((event.target as HTMLElement).closest('.info-btn')) {
               return
             }
+            track('study_mode_toggled', {
+              scope: 'per_video',
+              new_state: !isStudyMode
+            })
             onToggleStudyMode(video, category)
           }}
           onDelete={(event) => {
@@ -162,7 +185,7 @@ export default function WatchlistItem({
       </VideoCard>
       {isStudyMode ? (
         <div className={`expanded-rows${isExpanded ? ' is-visible' : ''}`} hidden={!isExpanded}>
-          {getVideoTimestampEntries(video).map((entry) => {
+          {timestampEntries.map((entry) => {
             const noteKey = `${video.videoId}-${entry.savedAt}`
             const isEditing = editingNoteKey === noteKey
             const noteText = String(entry.note || '').trim()
@@ -177,7 +200,7 @@ export default function WatchlistItem({
                   title="Jump to timestamp"
                   onClick={(event) => {
                     event.stopPropagation()
-                    onOpenVideo(video.videoId, Number((event.currentTarget as HTMLButtonElement).dataset.time || 0))
+                    onOpenVideo(video.videoId, Number((event.currentTarget as HTMLButtonElement).dataset.time || 0), isStudyMode)
                   }}
                 >
                   <img src={timestampUrl} className="timestamp-icon" alt="timestamp" width="10" height="10" />
@@ -191,26 +214,36 @@ export default function WatchlistItem({
                     placeholder="Add a note..."
                     rows={1}
                     onClick={(event) => event.stopPropagation()}
-                    onBlur={() => onFinishNoteEdit(video, category, entry.savedAt, noteDraft, true)}
+                    onBlur={() => {
+                      const wasEmpty = noteText.trim().length === 0
+                      if (noteDraft.trim() !== noteText.trim()) {
+                        track('note_edited', { was_empty: wasEmpty })
+                      }
+                      onFinishNoteEdit(video, category, entry.savedAt, noteDraft, true, noteText)
+                    }}
                     onChange={(event) => onNoteDraftChange(event.target.value, event.target)}
                     onKeyDown={(event) => {
                       event.stopPropagation()
 
                       if (event.key === 'Enter' && !event.shiftKey) {
                         event.preventDefault()
-                        onFinishNoteEdit(video, category, entry.savedAt, noteDraft, true)
+                        const wasEmpty = noteText.trim().length === 0
+                        if (noteDraft.trim() !== noteText.trim()) {
+                          track('note_edited', { was_empty: wasEmpty })
+                        }
+                        onFinishNoteEdit(video, category, entry.savedAt, noteDraft, true, noteText)
                         return
                       }
 
                       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                         event.preventDefault()
-                        onFinishNoteEdit(video, category, entry.savedAt, noteDraft, true)
+                        onFinishNoteEdit(video, category, entry.savedAt, noteDraft, true, noteText)
                         return
                       }
 
                       if (event.key === 'Escape') {
                         event.preventDefault()
-                        onFinishNoteEdit(video, category, entry.savedAt, noteText, false)
+                        onFinishNoteEdit(video, category, entry.savedAt, noteText, false, noteText)
                       }
                     }}
                   ></textarea>

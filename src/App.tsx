@@ -12,6 +12,7 @@ import MigrationHint from './components/MigrationHint'
 import BreakingNoticeBanner from './components/BreakingNoticeBanner'
 import UndoNotification from './components/UndoNotification'
 import { handleAuthError, runtimeRequest, signInWithGoogleInBackground, signOutInBackground } from './lib/auth'
+import { track, trackQueuedEvent, identifyUser, resetUser, flushQueuedAnalyticsEvents, startAnalyticsBridge } from './lib/analytics'
 import {
   cloudStorage,
   getDataClientApi,
@@ -56,6 +57,7 @@ const STUDY_MODE_VIDEO_INFO_COPY = Object.freeze({
 } satisfies InfoPopoverCopy)
 
 const UNDO_DURATION_MS = 30000
+const PENDING_SIGN_IN_ANALYTICS_KEY = 'pendingSignInAnalytics'
 
 interface InfoPopoverState {
   key: string
@@ -64,8 +66,21 @@ interface InfoPopoverState {
   left: number
 }
 
+interface PendingSignInAnalytics {
+  uid: string
+  email: string
+  displayName: string
+  queuedAt: number
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function waitForAnimationFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
 }
 
 function getBooleanFromLocalStorage(key: string, fallback = false): Promise<boolean> {
@@ -105,6 +120,48 @@ function getStudyMode(): Promise<boolean> {
 
 function setStudyMode(value: boolean): Promise<boolean> {
   return setBooleanInLocalStorage('studyMode', value)
+}
+
+function getPendingSignInAnalytics(): Promise<PendingSignInAnalytics | null> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([PENDING_SIGN_IN_ANALYTICS_KEY], (result) => {
+      if (chrome.runtime.lastError) {
+        console.warn('Failed to read pending sign-in analytics:', chrome.runtime.lastError.message)
+        resolve(null)
+        return
+      }
+
+      const pending = result[PENDING_SIGN_IN_ANALYTICS_KEY] as Record<string, unknown> | undefined
+      if (
+        pending &&
+        typeof pending.uid === 'string' &&
+        typeof pending.email === 'string' &&
+        typeof pending.displayName === 'string' &&
+        typeof pending.queuedAt === 'number'
+      ) {
+        resolve({
+          uid: pending.uid,
+          email: pending.email,
+          displayName: pending.displayName,
+          queuedAt: pending.queuedAt
+        })
+        return
+      }
+
+      resolve(null)
+    })
+  })
+}
+
+function clearPendingSignInAnalytics(): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove([PENDING_SIGN_IN_ANALYTICS_KEY], () => {
+      if (chrome.runtime.lastError) {
+        console.warn('Failed to clear pending sign-in analytics:', chrome.runtime.lastError.message)
+      }
+      resolve()
+    })
+  })
 }
 
 function getNormalizedVideoTimestampEntries(video: VideoEntry): VideoTimestampEntry[] {
@@ -251,6 +308,9 @@ export default function App(): JSX.Element {
       return
     }
 
+    const context = key.startsWith('profile-') ? 'global_toggle' : 'per_video_toggle'
+    track('info_popover_opened', { context })
+
     setInfoPopoverData({
       key,
       copy,
@@ -282,6 +342,7 @@ export default function App(): JSX.Element {
       onClick: (event) => {
         event.preventDefault()
         event.stopPropagation()
+        openInfoPopover(key, copy)
       },
       onKeyDown: (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -435,26 +496,30 @@ export default function App(): JSX.Element {
     return result.categories || {}
   }
 
-  async function refreshCategories(resetActiveCategory = false): Promise<void> {
+  async function refreshCategories(resetActiveCategory = false): Promise<Categories> {
     const nextCategories = await loadStoredCategories()
 
     if (!isMountedRef.current) {
-      return
+      return nextCategories
     }
 
     setCategories(nextCategories)
     if (resetActiveCategory) {
       setActiveCategory('all')
     }
+
+    return nextCategories
   }
 
-  async function loadDataIntoUI(resetActiveCategory = false): Promise<void> {
+  async function loadDataIntoUI(resetActiveCategory = false): Promise<Categories> {
     if (isMountedRef.current) {
       setIsLoading(true)
     }
 
+    let nextCategories: Categories = {}
+
     try {
-      await refreshCategories(resetActiveCategory)
+      nextCategories = await refreshCategories(resetActiveCategory)
     } finally {
       requestAnimationFrame(() => {
         if (isMountedRef.current) {
@@ -462,16 +527,23 @@ export default function App(): JSX.Element {
         }
       })
     }
+
+    return nextCategories
   }
 
   async function toggleGlobalStudyMode(): Promise<void> {
     const nextValue = !(await getStudyMode())
     await setStudyMode(nextValue)
+    track('study_mode_toggled', {
+      scope: 'global',
+      new_state: nextValue
+    })
     await syncStudyModePills()
   }
 
   async function handleSignIn(): Promise<void> {
     try {
+      track('sign_in_started')
       setButtonsDisabled(true)
       const nextUser = await signInWithGoogleInBackground()
       if (!nextUser) {
@@ -489,6 +561,11 @@ export default function App(): JSX.Element {
         setUser(nextUser)
         setIsProfileDropdownOpen(false)
       }
+      identifyUser(nextUser.uid, nextUser.email, nextUser.displayName)
+      const signInCompletedTracked = await trackQueuedEvent('sign_in_completed')
+      if (signInCompletedTracked) {
+        await clearPendingSignInAnalytics()
+      }
       hideStudyModeInfoPopover()
 
       try {
@@ -502,6 +579,9 @@ export default function App(): JSX.Element {
       await syncStudyModePills()
       await refreshSignedOutHint(true)
     } catch (error) {
+      track('sign_in_failed', {
+        error: (error as any)?.message || 'unknown'
+      })
       handleAuthError('Sign-in failed', error)
       hideStatusMessage()
     } finally {
@@ -518,6 +598,11 @@ export default function App(): JSX.Element {
       if (isMountedRef.current) {
         setUser(null)
         setIsProfileDropdownOpen(false)
+      }
+      resetUser()
+      const signOutCompletedTracked = await trackQueuedEvent('sign_out_completed')
+      if (!signOutCompletedTracked) {
+        track('sign_out_completed')
       }
       hideStudyModeInfoPopover()
       await loadDataIntoUI(true)
@@ -557,6 +642,7 @@ export default function App(): JSX.Element {
         setCategoryInputValue('')
       }
       await refreshCategories(false)
+      track('category_created')
       console.log('New category added:', categoryName)
     } catch (error: any) {
       console.error('Failed to add category:', error)
@@ -608,6 +694,7 @@ export default function App(): JSX.Element {
         setActiveCategory(nextSelectedCategory)
       }
       await refreshCategories(false)
+      track('category_deleted')
     } catch (error: any) {
       console.error('Failed to delete category:', error)
       const details = error?.message || 'Unknown error'
@@ -670,7 +757,13 @@ export default function App(): JSX.Element {
     }
   }
 
-  async function saveVideoNote(category: string, videoId: string, savedAt: number, nextNote: string): Promise<void> {
+  async function saveVideoNote(
+    category: string,
+    videoId: string,
+    savedAt: number,
+    nextNote: string,
+    originalNoteValue: string
+  ): Promise<void> {
     const trimmedNote = String(nextNote || '').trim()
     const result = await getCloudData(['categories'])
     const nextCategories = result.categories || {}
@@ -922,21 +1015,58 @@ export default function App(): JSX.Element {
   useEffect(() => {
     isMountedRef.current = true
 
+    async function flushAnalyticsQueue(): Promise<void> {
+      try {
+        await runtimeRequest({ type: 'ANALYTICS_FLUSH_QUEUE' })
+      } catch (error) {
+        console.warn('Failed to flush analytics queue:', error)
+      }
+    }
+
     async function initialize(): Promise<void> {
       let authenticated = false
 
+      if (isMountedRef.current) {
+        setIsLoading(true)
+      }
+
       try {
+        startAnalyticsBridge()
+        await flushQueuedAnalyticsEvents()
+        await flushAnalyticsQueue()
         await waitForDataLayer()
         const authStatus = await runtimeRequest({ type: 'AUTH_STATUS' })
         const nextUser = authStatus.authenticated ? authStatus.user : null
         authenticated = Boolean(nextUser)
+        const pendingSignInAnalytics = await getPendingSignInAnalytics()
+
+        if (authenticated && nextUser && pendingSignInAnalytics) {
+          identifyUser(nextUser.uid, nextUser.email, nextUser.displayName)
+          const signInCompletedTracked = await trackQueuedEvent('sign_in_completed')
+          if (signInCompletedTracked) {
+            await clearPendingSignInAnalytics()
+          }
+        } else if (!authenticated && pendingSignInAnalytics) {
+          await clearPendingSignInAnalytics()
+        }
 
         if (isMountedRef.current) {
           setUser(nextUser)
         }
 
-        await loadDataIntoUI(true)
+        const loadedCategories = await loadStoredCategories()
+        if (isMountedRef.current) {
+          setCategories(loadedCategories)
+          setActiveCategory('all')
+        }
+
         await syncStudyModePills()
+        const allVideos = Object.values(loadedCategories).flat()
+        track('popup_opened', {
+          is_authenticated: authenticated,
+          video_count: allVideos.length,
+          has_study_mode_videos: allVideos.some((v) => (v as any).studyMode === true)
+        })
       } catch (error) {
         console.error('Failed to load auth status', error)
         try {
@@ -949,9 +1079,25 @@ export default function App(): JSX.Element {
           setUser(null)
         }
 
-        await loadDataIntoUI(true)
+        const loadedCategories = await loadStoredCategories()
+        if (isMountedRef.current) {
+          setCategories(loadedCategories)
+          setActiveCategory('all')
+        }
+
         await syncStudyModePills()
+        const allVideos = Object.values(loadedCategories).flat()
+        track('popup_opened', {
+          is_authenticated: false,
+          video_count: allVideos.length,
+          has_study_mode_videos: allVideos.some((v) => (v as any).studyMode === true)
+        })
       } finally {
+        requestAnimationFrame(() => {
+          if (isMountedRef.current) {
+            setIsLoading(false)
+          }
+        })
         await loadBreakingNotice()
         await refreshSignedOutHint(authenticated)
       }
@@ -1068,7 +1214,12 @@ export default function App(): JSX.Element {
                   setShowCategoryModal(true)
                 }}
                 onToggleEditMode={() => {
-                  setIsEditMode((current) => !current)
+                  setIsEditMode((current) => {
+                    if (!current) {
+                      track('edit_mode_entered')
+                    }
+                    return !current
+                  })
                 }}
                 onDeleteCategory={handleDeleteCategoryRequest}
               />
@@ -1134,11 +1285,11 @@ export default function App(): JSX.Element {
                             setNoteDraft(value)
                             autoSizeTextarea(textarea)
                           }}
-                          onFinishNoteEdit={(targetVideo, targetCategory, savedAt, nextNote, shouldSave) => {
+                          onFinishNoteEdit={(targetVideo, targetCategory, savedAt, nextNote, shouldSave, originalNoteValue) => {
                             setEditingNoteKey(null)
                             setNoteDraft('')
                             if (shouldSave) {
-                              void saveVideoNote(targetCategory, targetVideo.videoId, savedAt, nextNote)
+                              void saveVideoNote(targetCategory, targetVideo.videoId, savedAt, nextNote, originalNoteValue)
                             }
                           }}
                         />

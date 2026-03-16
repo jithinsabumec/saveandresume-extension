@@ -1,3 +1,5 @@
+import { track } from './analytics'
+
 function fallbackOpenVideo(videoId: string, currentTime: number): void {
   const url = `https://www.youtube.com/watch?v=${videoId}&t=${Math.floor(currentTime)}s`
   chrome.tabs.create({ url }, () => {
@@ -7,15 +9,23 @@ function fallbackOpenVideo(videoId: string, currentTime: number): void {
   })
 }
 
-export function openVideo(videoId: string, currentTime: number): void {
+export function openVideo(videoId: string, currentTime: number, isStudyMode = false): void {
   chrome.tabs.query({}, (tabs) => {
     if (chrome.runtime.lastError) {
       console.warn('Failed to query tabs:', chrome.runtime.lastError.message)
+      track('video_opened', {
+        sought_existing_tab: false,
+        is_study_mode: isStudyMode
+      })
       fallbackOpenVideo(videoId, currentTime)
       return
     }
 
     const matchingTab = tabs.find((tab) => tab.url && tab.url.includes(`v=${videoId}`))
+    track('video_opened', {
+      sought_existing_tab: Boolean(matchingTab),
+      is_study_mode: isStudyMode
+    })
 
     if (matchingTab?.id != null && matchingTab.windowId != null) {
       chrome.tabs.sendMessage(

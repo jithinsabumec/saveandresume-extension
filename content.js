@@ -175,6 +175,78 @@ function setShowNotesModalPreference(value) {
     return setLocalBooleanPreference('showNotesModal', value);
 }
 
+function pushAnalyticsEvent(eventName, properties) {
+    try {
+        chrome.storage.local.get(['analyticsQueue'], (result) => {
+            if (chrome.runtime.lastError) {
+                console.warn('Analytics queue read failed:', chrome.runtime.lastError.message);
+                return;
+            }
+
+            const queue = Array.isArray(result.analyticsQueue) ? result.analyticsQueue : [];
+
+            // Cap the queue at 100 events to prevent unbounded growth
+            if (queue.length >= 100) {
+                queue.shift();
+            }
+
+            const queuedEvent = {
+                event: String(eventName),
+                properties: properties || {},
+                queuedAt: Date.now()
+            };
+
+            queue.push(queuedEvent);
+
+            chrome.storage.local.set({ analyticsQueue: queue }, () => {
+                if (chrome.runtime.lastError) {
+                    console.warn('Analytics queue write failed:', chrome.runtime.lastError.message);
+                    return;
+                }
+
+                try {
+                    chrome.runtime.sendMessage({
+                        type: 'ANALYTICS_CAPTURE_QUEUED_EVENT',
+                        payload: queuedEvent
+                    }, () => {
+                        if (chrome.runtime.lastError) {
+                            return;
+                        }
+                    });
+                } catch (error) {
+                    console.warn('Analytics queue capture notify failed:', error);
+                }
+            });
+        });
+    } catch (error) {
+        console.warn('Analytics queue push failed:', error);
+    }
+}
+
+function buildQueuedAnalyticsEvent(event, properties) {
+    return {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        event,
+        properties: properties && typeof properties === 'object' ? properties : undefined
+    };
+}
+
+function notifyAnalyticsEvent(queuedEvent) {
+    try {
+        chrome.runtime.sendMessage({ type: 'ANALYTICS_EVENT', payload: queuedEvent }, () => {
+            if (chrome.runtime.lastError) {
+                return;
+            }
+        });
+    } catch (error) {
+        console.warn('Failed to notify popup analytics bridge:', error);
+    }
+}
+
+function queueAnalyticsEvent(event, properties) {
+    pushAnalyticsEvent(event, properties);
+}
+
 function getNormalizedVideoTimestampEntries(video) {
     const fallbackTime = Math.max(0, Number(video?.currentTime) || 0);
     const fallbackSavedAt = Math.max(0, Number(video?.timestamp) || Date.now());
@@ -546,7 +618,7 @@ function findVideoCategory(videoId, callback) {
 }
 
 // Function to save video info to storage with current timestamp
-function saveVideoToWatchlist(videoId, title, currentTime) {
+function saveVideoToWatchlist(videoId, title, currentTime, source = 'button') {
     if (!isExtensionContextValid()) {
         handleContextInvalidation();
         return;
@@ -563,22 +635,34 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
             console.log(`Video ${currentVideoId} found in category ${existingCategory}. Updating timestamp.`);
 
             if (!effectiveStudyMode) {
-                saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '');
+                saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '', {
+                    isStudyMode: effectiveStudyMode,
+                    source
+                });
                 return;
             }
 
             getShowNotesModalPreference()
                 .then((shouldShowNotesModal) => {
                     if (shouldShowNotesModal) {
-                        showRepeatSaveDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory);
+                        showRepeatSaveDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, {
+                            isStudyMode: effectiveStudyMode,
+                            source
+                        });
                         return;
                     }
 
-                    saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '');
+                    saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '', {
+                        isStudyMode: effectiveStudyMode,
+                        source
+                    });
                 })
                 .catch((error) => {
                     console.error('Failed to read showNotesModal preference:', error);
-                    saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '');
+                    saveTimestampWithCategory(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, existingCategory, '', {
+                        isStudyMode: effectiveStudyMode,
+                        source
+                    });
                 });
         };
 
@@ -592,7 +676,7 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
 
                 // Video is new, show category selection dialog
                 console.log(`Video ${currentVideoId} not found. Showing category dialog.`);
-                showCategorySelectionDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, globalStudyMode);
+                showCategorySelectionDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, globalStudyMode, source);
             })
             .catch((error) => {
                 console.error('Failed to read Study Mode preference:', error);
@@ -601,7 +685,7 @@ function saveVideoToWatchlist(videoId, title, currentTime) {
                     continueSaveForExistingVideo(effectiveStudyMode);
                     return;
                 }
-                showCategorySelectionDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, false);
+                showCategorySelectionDialog(currentVideoId, cleanedTitle, currentTime, thumbnailUrl, false, source);
             });
     });
 }
@@ -630,7 +714,7 @@ function triggerShortcutCategoryDialog() {
     }
 
     const currentTime = video.currentTime;
-    saveVideoToWatchlist(videoId, videoTitle, currentTime);
+    saveVideoToWatchlist(videoId, videoTitle, currentTime, 'shortcut');
 }
 
 function isEditableShortcutTarget(target) {
@@ -643,19 +727,35 @@ function isEditableShortcutTarget(target) {
 }
 
 // Function to show category selection dialog
-async function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl, globalStudyMode = false) {
+async function showCategorySelectionDialog(videoId, title, currentTime, thumbnailUrl, globalStudyMode = false, source = 'button') {
     if (!isExtensionContextValid()) {
         handleContextInvalidation();
         return;
     }
 
     let removeCategoryDropdownDocumentListener = null;
+    let didSave = false;
+    let didTrackDismissWithoutNote = false;
     const { dialog, backdrop, closeDialog } = createDialogScaffold('Assign Category', () => {
         if (removeCategoryDropdownDocumentListener) {
             document.removeEventListener('click', removeCategoryDropdownDocumentListener);
             removeCategoryDropdownDocumentListener = null;
         }
+
+        if (!didSave && !didTrackDismissWithoutNote && globalStudyMode) {
+            pushAnalyticsEvent('notes_modal_dismissed_without_note');
+        }
     });
+
+    backdrop.onclick = (event) => {
+        if (event.target === backdrop) {
+            if (globalStudyMode) {
+                didTrackDismissWithoutNote = true;
+                pushAnalyticsEvent('notes_modal_dismissed_without_note');
+            }
+            closeDialog();
+        }
+    };
 
     dialog.appendChild(createTimestampInfoCard(title, currentTime, thumbnailUrl));
 
@@ -770,6 +870,12 @@ async function showCategorySelectionDialog(videoId, title, currentTime, thumbnai
         showNotesCheckbox.addEventListener('change', () => {
             setShowNotesModalPreference(showNotesCheckbox.checked).catch((error) => {
                 console.error('Failed to save showNotesModal preference:', error);
+            }).then((result) => {
+                if (typeof result === 'boolean') {
+                    queueAnalyticsEvent('show_notes_modal_preference_changed', {
+                        new_value: showNotesCheckbox.checked
+                    });
+                }
             });
         });
     }
@@ -937,7 +1043,13 @@ async function showCategorySelectionDialog(videoId, title, currentTime, thumbnai
     cancelButton.style.color = '#7C7C7C';
     cancelButton.style.cursor = 'pointer';
     cancelButton.style.fontFamily = PRIMARY_FONT_FAMILY;
-    cancelButton.onclick = closeDialog;
+    cancelButton.onclick = () => {
+        if (globalStudyMode) {
+            didTrackDismissWithoutNote = true;
+            pushAnalyticsEvent('notes_modal_dismissed_without_note');
+        }
+        closeDialog();
+    };
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Save';
@@ -958,7 +1070,17 @@ async function showCategorySelectionDialog(videoId, title, currentTime, thumbnai
             return;
         }
 
-        saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, selectedCategory, notesInput ? notesInput.value : '');
+        const noteValue = notesInput ? notesInput.value : '';
+        const hasNote = Boolean(noteValue && noteValue.trim().length > 0);
+
+        didSave = true;
+        if (globalStudyMode && hasNote) {
+            pushAnalyticsEvent('notes_modal_saved_with_note');
+        }
+        saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, selectedCategory, noteValue, {
+            isStudyMode: globalStudyMode,
+            source
+        });
         closeDialog();
     };
 
@@ -970,13 +1092,19 @@ async function showCategorySelectionDialog(videoId, title, currentTime, thumbnai
     document.body.appendChild(dialog);
 }
 
-function showRepeatSaveDialog(videoId, title, currentTime, thumbnailUrl, category) {
+function showRepeatSaveDialog(videoId, title, currentTime, thumbnailUrl, category, options = {}) {
     if (!isExtensionContextValid()) {
         handleContextInvalidation();
         return;
     }
 
-    const { dialog, backdrop, closeDialog } = createDialogScaffold('Add a note');
+    let didSave = false;
+    let didTrackDismissWithoutNote = false;
+    const { dialog, backdrop, closeDialog } = createDialogScaffold('Add a note', () => {
+        if (!didSave && !didTrackDismissWithoutNote) {
+            pushAnalyticsEvent('notes_modal_dismissed_without_note');
+        }
+    });
     dialog.appendChild(createTimestampInfoCard(title, currentTime, thumbnailUrl));
 
     const notesInput = createNotesInputField('Add a note for this timestamp... (optional)');
@@ -997,7 +1125,11 @@ function showRepeatSaveDialog(videoId, title, currentTime, thumbnailUrl, categor
     cancelButton.style.color = '#7C7C7C';
     cancelButton.style.cursor = 'pointer';
     cancelButton.style.fontFamily = PRIMARY_FONT_FAMILY;
-    cancelButton.onclick = closeDialog;
+    cancelButton.onclick = () => {
+        didTrackDismissWithoutNote = true;
+        pushAnalyticsEvent('notes_modal_dismissed_without_note');
+        closeDialog();
+    };
 
     const saveButton = document.createElement('button');
     saveButton.textContent = 'Save';
@@ -1009,7 +1141,12 @@ function showRepeatSaveDialog(videoId, title, currentTime, thumbnailUrl, categor
     saveButton.style.cursor = 'pointer';
     saveButton.style.fontFamily = PRIMARY_FONT_FAMILY;
     saveButton.onclick = () => {
-        saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, category, notesInput.value);
+        const hasNote = Boolean(notesInput.value && notesInput.value.trim().length > 0);
+        didSave = true;
+        if (hasNote) {
+            pushAnalyticsEvent('notes_modal_saved_with_note');
+        }
+        saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, category, notesInput.value, options);
         closeDialog();
     };
 
@@ -1022,7 +1159,7 @@ function showRepeatSaveDialog(videoId, title, currentTime, thumbnailUrl, categor
 }
 
 // Function to save timestamp with selected category
-function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, category, note = '') {
+function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, category, note = '', options = {}) {
     if (!isExtensionContextValid()) {
         handleContextInvalidation();
         return;
@@ -1035,6 +1172,9 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
         }
 
         const persistTimestamp = () => {
+            const isNewCategory = !Array.isArray(categories[category]);
+            const saveSource = options.source === 'shortcut' ? 'shortcut' : 'button';
+
             if (!categories[category]) {
                 categories[category] = [];
             }
@@ -1078,6 +1218,22 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
                         action: 'added',
                         time: formattedTime
                     });
+
+                    pushAnalyticsEvent('timestamp_saved', {
+                        is_study_mode: Boolean(videoData.studyMode),
+                        has_note: Boolean(note && note.trim().length > 0),
+                        is_first_save_for_video: true,
+                        category: category === 'Default' ? 'default' : 'custom',
+                        source: saveSource
+                    });
+
+                    if (category !== 'Default') {
+                        pushAnalyticsEvent('category_assigned', {
+                            is_new_category: isNewCategory,
+                            is_default: false
+                        });
+                    }
+
                     console.log('Timestamp added to category:', category, videoData);
                 });
                 return;
@@ -1117,6 +1273,15 @@ function saveTimestampWithCategory(videoId, title, currentTime, thumbnailUrl, ca
                     action: 'updated',
                     time: formattedTime
                 });
+
+                pushAnalyticsEvent('timestamp_updated', {
+                    is_study_mode: Boolean(updatedVideo.studyMode),
+                    has_note: Boolean(note && note.trim().length > 0),
+                    is_first_save_for_video: false,
+                    category: category === 'Default' ? 'default' : 'custom',
+                    source: saveSource
+                });
+
                 console.log('Timestamp updated in category:', category, updatedVideo);
             });
         };
@@ -1182,7 +1347,7 @@ function addButton() {
             const currentTime = video.currentTime;
             console.log('Video current time:', currentTime);
             console.log('Video current time (readable):', video.currentTime / 60, 'minutes');
-            saveVideoToWatchlist(videoId, videoTitle, currentTime);
+            saveVideoToWatchlist(videoId, videoTitle, currentTime, 'button');
         };
         btn.addEventListener('mouseenter', () => {
             btn.style.backgroundColor = '#781D2F';  // darker red on hover
